@@ -1,0 +1,56 @@
+{
+  "colorProfile": "srgb",
+  "currentPage": 1,
+  "dirty": true,
+  "history": {
+    "redo": 0,
+    "undo": [
+      "StructureWeaver woven structure mark"
+    ]
+  },
+  "id": 6,
+  "images": 0,
+  "kind": "design",
+  "name": "StructureWeaver brand",
+  "pages": [
+    {
+      "background": "#F5F5F5",
+      "children": [
+        {
+          "absoluteBounds": {
+            "height": 512.0,
+            "width": 512.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "childCount": 8,
+          "clip": true,
+          "cornerRadius": 108.0,
+          "fills": [
+            {
+              "color": "#0B1020",
+              "type": "solid"
+            }
+          ],
+          "height": 512.0,
+          "id": 2,
+          "name": "StructureWeaver icon",
+          "type": "FRAME",
+          "width": 512.0,
+          "x": 0.0,
+          "y": 0.0
+        }
+      ],
+      "id": 1,
+      "name": "Page 1",
+      "type": "PAGE"
+    }
+  ],
+  "path": null,
+  "selection": [
+    10
+  ],
+  "styles": [],
+  "textEdit": null,
+  "variables": 0
+}

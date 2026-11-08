@@ -1,0 +1,1081 @@
+{
+  "version": "0.1.0",
+  "document": {
+    "id": "6e5cac027c07c1020cb972941ddb9ca66ae9a842b597ab1f93fd0fa0d83ec35d",
+    "name": "wide.xlsx",
+    "format": "xlsx",
+    "pages": [
+      {
+        "id": "sheet-1",
+        "name": "Wide Customers",
+        "kind": "sheet",
+        "hidden": false,
+        "grid": {
+          "rows": 4,
+          "cols": 12,
+          "cells": [
+            {
+              "row": 1,
+              "col": 1,
+              "value": "customer_id",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 2,
+              "value": "customer_name",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 3,
+              "value": "country",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 4,
+              "value": "city",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 5,
+              "value": "segment",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 6,
+              "value": "active",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 7,
+              "value": "orders_count",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 8,
+              "value": "revenue",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 9,
+              "value": "discount",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 10,
+              "value": "currency",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 11,
+              "value": "account_owner",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 12,
+              "value": "postal_code",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 2,
+              "col": 1,
+              "value": "101",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 2,
+              "value": "Alice",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 3,
+              "value": "KR",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 4,
+              "value": "Seoul",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 5,
+              "value": "Business",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 6,
+              "value": "true",
+              "kind": "boolean",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 7,
+              "value": "4",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 8,
+              "value": "1200",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 9,
+              "value": "0.05",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 10,
+              "value": "KRW",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 11,
+              "value": "Min",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 12,
+              "value": "04524",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 1,
+              "value": "102",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 2,
+              "value": "Bob",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 3,
+              "value": "US",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 4,
+              "value": "Boston",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 5,
+              "value": "Retail",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 6,
+              "value": "true",
+              "kind": "boolean",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 7,
+              "value": "2",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 8,
+              "value": "800",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 9,
+              "value": "0",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 10,
+              "value": "USD",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 11,
+              "value": "Sam",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 12,
+              "value": "02108",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 1,
+              "value": "103",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 2,
+              "value": "Carol",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 3,
+              "value": "KR",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 4,
+              "value": "Busan",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 5,
+              "value": "Business",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 6,
+              "value": "false",
+              "kind": "boolean",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 7,
+              "value": "1",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 8,
+              "value": "450",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 9,
+              "value": "0.1",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 10,
+              "value": "KRW",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 11,
+              "value": "Min",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 12,
+              "value": "48942",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            }
+          ],
+          "merges": [],
+          "hidden_rows": [],
+          "hidden_cols": []
+        },
+        "blocks": []
+      }
+    ],
+    "warnings": [
+      "Formula values are Excel's saved cached results; formulas are preserved but are not recalculated."
+    ]
+  },
+  "tables": [
+    {
+      "id": "sheet-1_table_1",
+      "name": "Wide Customers",
+      "page_id": "sheet-1",
+      "bounds": {
+        "top": 1,
+        "left": 1,
+        "bottom": 4,
+        "right": 12
+      },
+      "title": null,
+      "column_header": {
+        "top": 1,
+        "left": 1,
+        "bottom": 1,
+        "right": 12
+      },
+      "row_header": null,
+      "data": {
+        "top": 2,
+        "left": 1,
+        "bottom": 4,
+        "right": 12
+      },
+      "orientation": "records",
+      "headers": [
+        {
+          "id": "sheet-1_table_1_column_1_1",
+          "label": "customer_id",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 1,
+            "bottom": 1,
+            "right": 1
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_2",
+          "label": "customer_name",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 2,
+            "bottom": 1,
+            "right": 2
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_3",
+          "label": "country",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 3,
+            "bottom": 1,
+            "right": 3
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_4",
+          "label": "city",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 4,
+            "bottom": 1,
+            "right": 4
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_5",
+          "label": "segment",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 5,
+            "bottom": 1,
+            "right": 5
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_6",
+          "label": "active",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 6,
+            "bottom": 1,
+            "right": 6
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_7",
+          "label": "orders_count",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 7,
+            "bottom": 1,
+            "right": 7
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_8",
+          "label": "revenue",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 8,
+            "bottom": 1,
+            "right": 8
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_9",
+          "label": "discount",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 9,
+            "bottom": 1,
+            "right": 9
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_10",
+          "label": "currency",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 10,
+            "bottom": 1,
+            "right": 10
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_11",
+          "label": "account_owner",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 11,
+            "bottom": 1,
+            "right": 11
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_table_1_column_1_12",
+          "label": "postal_code",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 12,
+            "bottom": 1,
+            "right": 12
+          },
+          "parent_id": null
+        }
+      ],
+      "evidence": "Llama tile analysis + sheet-wide reconciliation; source data coverage validated"
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "id": "entity_sheet-1_table_1",
+        "name": "Wide Customers",
+        "table_id": "sheet-1_table_1",
+        "attributes": [
+          {
+            "name": "customer_id",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 1,
+                  "bottom": 4,
+                  "right": 1
+                }
+              }
+            },
+            "sample_values": [
+              "101",
+              "102",
+              "103"
+            ]
+          },
+          {
+            "name": "customer_name",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 2,
+                  "bottom": 4,
+                  "right": 2
+                }
+              }
+            },
+            "sample_values": [
+              "Alice",
+              "Bob",
+              "Carol"
+            ]
+          },
+          {
+            "name": "country",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 3,
+                  "bottom": 4,
+                  "right": 3
+                }
+              }
+            },
+            "sample_values": [
+              "KR",
+              "US"
+            ]
+          },
+          {
+            "name": "city",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 4,
+                  "bottom": 4,
+                  "right": 4
+                }
+              }
+            },
+            "sample_values": [
+              "Seoul",
+              "Boston",
+              "Busan"
+            ]
+          },
+          {
+            "name": "segment",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 5,
+                  "bottom": 4,
+                  "right": 5
+                }
+              }
+            },
+            "sample_values": [
+              "Business",
+              "Retail"
+            ]
+          },
+          {
+            "name": "active",
+            "data_type": "BOOLEAN",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 6,
+                  "bottom": 4,
+                  "right": 6
+                }
+              }
+            },
+            "sample_values": [
+              "true",
+              "false"
+            ]
+          },
+          {
+            "name": "orders_count",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 7,
+                  "bottom": 4,
+                  "right": 7
+                }
+              }
+            },
+            "sample_values": [
+              "4",
+              "2",
+              "1"
+            ]
+          },
+          {
+            "name": "revenue",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 8,
+                  "bottom": 4,
+                  "right": 8
+                }
+              }
+            },
+            "sample_values": [
+              "1200",
+              "800",
+              "450"
+            ]
+          },
+          {
+            "name": "discount",
+            "data_type": "REAL",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 9,
+                  "bottom": 4,
+                  "right": 9
+                }
+              }
+            },
+            "sample_values": [
+              "0.05",
+              "0",
+              "0.1"
+            ]
+          },
+          {
+            "name": "currency",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 10,
+                  "bottom": 4,
+                  "right": 10
+                }
+              }
+            },
+            "sample_values": [
+              "KRW",
+              "USD"
+            ]
+          },
+          {
+            "name": "account_owner",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 11,
+                  "bottom": 4,
+                  "right": 11
+                }
+              }
+            },
+            "sample_values": [
+              "Min",
+              "Sam"
+            ]
+          },
+          {
+            "name": "postal_code",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 12,
+                  "bottom": 4,
+                  "right": 12
+                }
+              }
+            },
+            "sample_values": [
+              "04524",
+              "02108",
+              "48942"
+            ]
+          }
+        ],
+        "row_count": 3
+      }
+    ],
+    "relationships": [],
+    "warnings": [
+      "Wide Customers: several equally plausible unique ID columns; primary key needs review."
+    ]
+  },
+  "pages": [
+    {
+      "page_id": "sheet-1",
+      "page_name": "Wide Customers",
+      "state": "complete",
+      "tiles_total": 2,
+      "tiles_completed": 2,
+      "message": "All populated tiles processed"
+    }
+  ],
+  "warnings": [
+    "Formula values are Excel's saved cached results; formulas are preserved but are not recalculated."
+  ],
+  "model": "unsloth/gemma-4-E4B-it-GGUF:Q4_K_XL"
+}

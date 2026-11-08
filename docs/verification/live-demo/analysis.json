@@ -1,0 +1,1199 @@
+{
+  "version": "0.1.0",
+  "document": {
+    "id": "e3e2bf448113b3be46e7cc2d491e8a306c52922c656c9d99ba67a4f1ff22c364",
+    "name": "demo.xlsx",
+    "format": "xlsx",
+    "pages": [
+      {
+        "id": "sheet-1",
+        "name": "Customers",
+        "kind": "sheet",
+        "hidden": false,
+        "grid": {
+          "rows": 4,
+          "cols": 3,
+          "cells": [
+            {
+              "row": 1,
+              "col": 1,
+              "value": "customer_id",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 2,
+              "value": "customer_name",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 3,
+              "value": "country",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 2,
+              "col": 1,
+              "value": "101",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 2,
+              "value": "Alice",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 3,
+              "value": "KR",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 1,
+              "value": "102",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 2,
+              "value": "Bob",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 3,
+              "value": "US",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 1,
+              "value": "103",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 2,
+              "value": "Carol",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 3,
+              "value": "KR",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            }
+          ],
+          "merges": [],
+          "hidden_rows": [],
+          "hidden_cols": []
+        },
+        "blocks": []
+      },
+      {
+        "id": "sheet-2",
+        "name": "Orders",
+        "kind": "sheet",
+        "hidden": false,
+        "grid": {
+          "rows": 5,
+          "cols": 3,
+          "cells": [
+            {
+              "row": 1,
+              "col": 1,
+              "value": "order_id",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 2,
+              "value": "customer_id",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 3,
+              "value": "amount",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 2,
+              "col": 1,
+              "value": "1001",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 2,
+              "value": "101",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 3,
+              "value": "120",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 1,
+              "value": "1002",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 2,
+              "value": "101",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 3,
+              "value": "75",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 1,
+              "value": "1003",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 2,
+              "value": "102",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 3,
+              "value": "260",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 1,
+              "value": "1004",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 2,
+              "value": "103",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 3,
+              "value": "50",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            }
+          ],
+          "merges": [],
+          "hidden_rows": [],
+          "hidden_cols": []
+        },
+        "blocks": []
+      },
+      {
+        "id": "sheet-3",
+        "name": "LineItems",
+        "kind": "sheet",
+        "hidden": false,
+        "grid": {
+          "rows": 6,
+          "cols": 4,
+          "cells": [
+            {
+              "row": 1,
+              "col": 1,
+              "value": "line_id",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 2,
+              "value": "order_id",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 3,
+              "value": "product_name",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 1,
+              "col": 4,
+              "value": "quantity",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 2,
+              "col": 1,
+              "value": "1",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 2,
+              "value": "1001",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 3,
+              "value": "Keyboard",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 2,
+              "col": 4,
+              "value": "1",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 1,
+              "value": "2",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 2,
+              "value": "1001",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 3,
+              "value": "Mouse",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 3,
+              "col": 4,
+              "value": "2",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 1,
+              "value": "3",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 2,
+              "value": "1002",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 3,
+              "value": "Monitor",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 4,
+              "value": "1",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 1,
+              "value": "4",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 2,
+              "value": "1003",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 3,
+              "value": "Cable",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 4,
+              "value": "3",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 1,
+              "value": "5",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 2,
+              "value": "1004",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 3,
+              "value": "Stand",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 4,
+              "value": "1",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            }
+          ],
+          "merges": [],
+          "hidden_rows": [],
+          "hidden_cols": []
+        },
+        "blocks": []
+      }
+    ],
+    "warnings": [
+      "Formula values are Excel's saved cached results; formulas are preserved but are not recalculated."
+    ]
+  },
+  "tables": [
+    {
+      "id": "sheet-1_t1",
+      "name": "Customers",
+      "page_id": "sheet-1",
+      "bounds": {
+        "top": 1,
+        "left": 1,
+        "bottom": 4,
+        "right": 3
+      },
+      "title": null,
+      "column_header": {
+        "top": 1,
+        "left": 1,
+        "bottom": 1,
+        "right": 3
+      },
+      "row_header": null,
+      "data": {
+        "top": 2,
+        "left": 1,
+        "bottom": 4,
+        "right": 3
+      },
+      "orientation": "records",
+      "headers": [
+        {
+          "id": "sheet-1_t1_column_1_1",
+          "label": "customer_id",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 1,
+            "bottom": 1,
+            "right": 1
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_t1_column_1_2",
+          "label": "customer_name",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 2,
+            "bottom": 1,
+            "right": 2
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_t1_column_1_3",
+          "label": "country",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 3,
+            "bottom": 1,
+            "right": 3
+          },
+          "parent_id": null
+        }
+      ],
+      "evidence": "Llama vision + exact cell facts, tile 1"
+    },
+    {
+      "id": "sheet-2_t2",
+      "name": "Orders",
+      "page_id": "sheet-2",
+      "bounds": {
+        "top": 1,
+        "left": 1,
+        "bottom": 5,
+        "right": 3
+      },
+      "title": null,
+      "column_header": {
+        "top": 1,
+        "left": 1,
+        "bottom": 1,
+        "right": 3
+      },
+      "row_header": null,
+      "data": {
+        "top": 2,
+        "left": 1,
+        "bottom": 5,
+        "right": 3
+      },
+      "orientation": "records",
+      "headers": [
+        {
+          "id": "sheet-2_t2_column_1_1",
+          "label": "order_id",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 1,
+            "bottom": 1,
+            "right": 1
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-2_t2_column_1_2",
+          "label": "customer_id",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 2,
+            "bottom": 1,
+            "right": 2
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-2_t2_column_1_3",
+          "label": "amount",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 3,
+            "bottom": 1,
+            "right": 3
+          },
+          "parent_id": null
+        }
+      ],
+      "evidence": "Llama vision + exact cell facts, tile 1"
+    },
+    {
+      "id": "sheet-3_t3",
+      "name": "LineItems",
+      "page_id": "sheet-3",
+      "bounds": {
+        "top": 1,
+        "left": 1,
+        "bottom": 6,
+        "right": 4
+      },
+      "title": null,
+      "column_header": {
+        "top": 1,
+        "left": 1,
+        "bottom": 1,
+        "right": 4
+      },
+      "row_header": null,
+      "data": {
+        "top": 2,
+        "left": 1,
+        "bottom": 6,
+        "right": 4
+      },
+      "orientation": "records",
+      "headers": [
+        {
+          "id": "sheet-3_t3_column_1_1",
+          "label": "line_id",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 1,
+            "bottom": 1,
+            "right": 1
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-3_t3_column_1_2",
+          "label": "order_id",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 2,
+            "bottom": 1,
+            "right": 2
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-3_t3_column_1_3",
+          "label": "product_name",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 3,
+            "bottom": 1,
+            "right": 3
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-3_t3_column_1_4",
+          "label": "quantity",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 4,
+            "bottom": 1,
+            "right": 4
+          },
+          "parent_id": null
+        }
+      ],
+      "evidence": "Llama vision + exact cell facts, tile 1"
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "id": "entity_sheet-1_t1",
+        "name": "Customers",
+        "table_id": "sheet-1_t1",
+        "attributes": [
+          {
+            "name": "customer_id",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": true,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 1,
+                  "bottom": 4,
+                  "right": 1
+                }
+              }
+            },
+            "sample_values": [
+              "101",
+              "102",
+              "103"
+            ]
+          },
+          {
+            "name": "customer_name",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 2,
+                  "bottom": 4,
+                  "right": 2
+                }
+              }
+            },
+            "sample_values": [
+              "Alice",
+              "Bob",
+              "Carol"
+            ]
+          },
+          {
+            "name": "country",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 3,
+                  "bottom": 4,
+                  "right": 3
+                }
+              }
+            },
+            "sample_values": [
+              "KR",
+              "US"
+            ]
+          }
+        ],
+        "row_count": 3
+      },
+      {
+        "id": "entity_sheet-2_t2",
+        "name": "Orders",
+        "table_id": "sheet-2_t2",
+        "attributes": [
+          {
+            "name": "order_id",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": true,
+            "source": {
+              "page_id": "sheet-2",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 1,
+                  "bottom": 5,
+                  "right": 1
+                }
+              }
+            },
+            "sample_values": [
+              "1001",
+              "1002",
+              "1003",
+              "1004"
+            ]
+          },
+          {
+            "name": "customer_id",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-2",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 2,
+                  "bottom": 5,
+                  "right": 2
+                }
+              }
+            },
+            "sample_values": [
+              "101",
+              "102",
+              "103"
+            ]
+          },
+          {
+            "name": "amount",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-2",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 3,
+                  "bottom": 5,
+                  "right": 3
+                }
+              }
+            },
+            "sample_values": [
+              "120",
+              "75",
+              "260",
+              "50"
+            ]
+          }
+        ],
+        "row_count": 4
+      },
+      {
+        "id": "entity_sheet-3_t3",
+        "name": "LineItems",
+        "table_id": "sheet-3_t3",
+        "attributes": [
+          {
+            "name": "line_id",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": true,
+            "source": {
+              "page_id": "sheet-3",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 1,
+                  "bottom": 6,
+                  "right": 1
+                }
+              }
+            },
+            "sample_values": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5"
+            ]
+          },
+          {
+            "name": "order_id",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-3",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 2,
+                  "bottom": 6,
+                  "right": 2
+                }
+              }
+            },
+            "sample_values": [
+              "1001",
+              "1002",
+              "1003",
+              "1004"
+            ]
+          },
+          {
+            "name": "product_name",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-3",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 3,
+                  "bottom": 6,
+                  "right": 3
+                }
+              }
+            },
+            "sample_values": [
+              "Keyboard",
+              "Mouse",
+              "Monitor",
+              "Cable",
+              "Stand"
+            ]
+          },
+          {
+            "name": "quantity",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-3",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 4,
+                  "bottom": 6,
+                  "right": 4
+                }
+              }
+            },
+            "sample_values": [
+              "1",
+              "2",
+              "3"
+            ]
+          }
+        ],
+        "row_count": 5
+      }
+    ],
+    "relationships": [
+      {
+        "from_entity": "entity_sheet-2_t2",
+        "from_attribute": "customer_id",
+        "to_entity": "entity_sheet-1_t1",
+        "to_attribute": "customer_id",
+        "cardinality": "many_to_one",
+        "confidence": 0.75,
+        "evidence": "Compatible INTEGER types and ID naming; all 4 observed non-null values (3 distinct) reference the unique Customers.customer_id key. Source values repeat. Source key has no nulls. Observed data only; requires review.",
+        "status": "candidate"
+      },
+      {
+        "from_entity": "entity_sheet-3_t3",
+        "from_attribute": "order_id",
+        "to_entity": "entity_sheet-2_t2",
+        "to_attribute": "order_id",
+        "cardinality": "many_to_one",
+        "confidence": 0.9,
+        "evidence": "Compatible INTEGER types and ID naming; all 5 observed non-null values (4 distinct) reference the unique Orders.order_id key. Source values repeat. Source key has no nulls. Observed data only; requires review.",
+        "status": "candidate"
+      }
+    ],
+    "warnings": []
+  },
+  "pages": [
+    {
+      "page_id": "sheet-1",
+      "page_name": "Customers",
+      "state": "complete",
+      "tiles_total": 1,
+      "tiles_completed": 1,
+      "message": "All populated tiles processed"
+    },
+    {
+      "page_id": "sheet-2",
+      "page_name": "Orders",
+      "state": "complete",
+      "tiles_total": 1,
+      "tiles_completed": 1,
+      "message": "All populated tiles processed"
+    },
+    {
+      "page_id": "sheet-3",
+      "page_name": "LineItems",
+      "state": "complete",
+      "tiles_total": 1,
+      "tiles_completed": 1,
+      "message": "All populated tiles processed"
+    }
+  ],
+  "warnings": [
+    "Formula values are Excel's saved cached results; formulas are preserved but are not recalculated."
+  ],
+  "model": "unsloth/gemma-4-E4B-it-GGUF:Q4_K_XL"
+}

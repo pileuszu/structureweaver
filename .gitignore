@@ -1,0 +1,7 @@
+/target/
+/.tools
+/output/
+/dist/
+.DS_Store
+/design/figcraft-reference.png
+/design/figcraft-ui-reference.json

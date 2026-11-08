@@ -1,0 +1,99 @@
+{
+  "tool": "designcraft-cli 0.17.2",
+  "commands_completed": 3192,
+  "editable_items": 945,
+  "text_stories": 98,
+  "overset_stories": [],
+  "fonts": [
+    {
+      "bitmapOnly": false,
+      "characters": 100,
+      "editable": true,
+      "family": "Apple SD Gothic Neo",
+      "fsType": 8,
+      "matchStatus": "exact",
+      "missing": false,
+      "noSubsetting": false,
+      "previewPrint": false,
+      "replacementFamily": "Apple SD Gothic Neo",
+      "replacementStyle": "Bold",
+      "resolvedFamily": "Apple SD Gothic Neo",
+      "resolvedStyle": "Bold",
+      "restrictedLicence": false,
+      "source": "installed",
+      "style": "Bold",
+      "styleMissing": false
+    },
+    {
+      "bitmapOnly": false,
+      "characters": 451,
+      "editable": true,
+      "family": "Apple SD Gothic Neo",
+      "fsType": 8,
+      "matchStatus": "exact",
+      "missing": false,
+      "noSubsetting": false,
+      "previewPrint": false,
+      "replacementFamily": "Apple SD Gothic Neo",
+      "replacementStyle": "Regular",
+      "resolvedFamily": "Apple SD Gothic Neo",
+      "resolvedStyle": "Regular",
+      "restrictedLicence": false,
+      "source": "installed",
+      "style": "Regular",
+      "styleMissing": false
+    },
+    {
+      "bitmapOnly": false,
+      "characters": 64,
+      "editable": true,
+      "family": "Arial",
+      "fsType": 8,
+      "matchStatus": "exact",
+      "missing": false,
+      "noSubsetting": false,
+      "previewPrint": false,
+      "replacementFamily": "Arial",
+      "replacementStyle": "Bold",
+      "resolvedFamily": "Arial",
+      "resolvedStyle": "Bold",
+      "restrictedLicence": false,
+      "source": "installed",
+      "style": "Bold",
+      "styleMissing": false
+    },
+    {
+      "bitmapOnly": false,
+      "characters": 244,
+      "editable": true,
+      "family": "Arial",
+      "fsType": 8,
+      "matchStatus": "exact",
+      "missing": false,
+      "noSubsetting": false,
+      "previewPrint": false,
+      "replacementFamily": "Arial",
+      "replacementStyle": "Regular",
+      "resolvedFamily": "Arial",
+      "resolvedStyle": "Regular",
+      "restrictedLicence": false,
+      "source": "installed",
+      "style": "Regular",
+      "styleMissing": false
+    }
+  ],
+  "preflight": {
+    "errors": 0,
+    "issues": [],
+    "warnings": 0
+  },
+  "document_size": [
+    1440,
+    960
+  ],
+  "style_reference": {
+    "repository": "https://github.com/storytold/figcraft",
+    "commit": "8eb0b87646c5aef712326d6c431ccde5408630de",
+    "theme": "light"
+  }
+}

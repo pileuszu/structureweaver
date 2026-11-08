@@ -1,0 +1,168 @@
+{
+  "command": "command.batch",
+  "params": {
+    "label": "StructureWeaver woven structure mark",
+    "commands": [
+      {
+        "command": "frame.create",
+        "params": {
+          "name": "StructureWeaver icon",
+          "x": 0,
+          "y": 0,
+          "width": 512,
+          "height": 512,
+          "props": {
+            "fill": "#0B1020",
+            "cornerRadius": 108,
+            "clip": true
+          }
+        },
+        "as": "icon"
+      },
+      {
+        "command": "node.create",
+        "params": {
+          "type": "rectangle",
+          "name": "Vertical source A",
+          "parent": {
+            "$ref": "icon"
+          },
+          "x": 152,
+          "y": 100,
+          "width": 48,
+          "height": 312,
+          "props": {
+            "fill": "#6FE4CC",
+            "cornerRadius": 18
+          }
+        }
+      },
+      {
+        "command": "node.create",
+        "params": {
+          "type": "rectangle",
+          "name": "Vertical source B",
+          "parent": {
+            "$ref": "icon"
+          },
+          "x": 264,
+          "y": 100,
+          "width": 48,
+          "height": 312,
+          "props": {
+            "fill": "#6FE4CC",
+            "cornerRadius": 18
+          }
+        }
+      },
+      {
+        "command": "node.create",
+        "params": {
+          "type": "rectangle",
+          "name": "Header relation A",
+          "parent": {
+            "$ref": "icon"
+          },
+          "x": 100,
+          "y": 164,
+          "width": 312,
+          "height": 48,
+          "props": {
+            "fill": "#AAA4FF",
+            "cornerRadius": 18
+          }
+        }
+      },
+      {
+        "command": "node.create",
+        "params": {
+          "type": "rectangle",
+          "name": "Header relation B",
+          "parent": {
+            "$ref": "icon"
+          },
+          "x": 100,
+          "y": 284,
+          "width": 312,
+          "height": 48,
+          "props": {
+            "fill": "#AAA4FF",
+            "cornerRadius": 18
+          }
+        }
+      },
+      {
+        "command": "node.create",
+        "params": {
+          "type": "rectangle",
+          "name": "Underpass A",
+          "parent": {
+            "$ref": "icon"
+          },
+          "x": 144,
+          "y": 156,
+          "width": 64,
+          "height": 64,
+          "props": {
+            "fill": "#0B1020",
+            "cornerRadius": 0
+          }
+        }
+      },
+      {
+        "command": "node.create",
+        "params": {
+          "type": "rectangle",
+          "name": "Woven overpass A",
+          "parent": {
+            "$ref": "icon"
+          },
+          "x": 152,
+          "y": 148,
+          "width": 48,
+          "height": 80,
+          "props": {
+            "fill": "#6FE4CC",
+            "cornerRadius": 0
+          }
+        }
+      },
+      {
+        "command": "node.create",
+        "params": {
+          "type": "rectangle",
+          "name": "Underpass B",
+          "parent": {
+            "$ref": "icon"
+          },
+          "x": 256,
+          "y": 276,
+          "width": 64,
+          "height": 64,
+          "props": {
+            "fill": "#0B1020",
+            "cornerRadius": 0
+          }
+        }
+      },
+      {
+        "command": "node.create",
+        "params": {
+          "type": "rectangle",
+          "name": "Woven overpass B",
+          "parent": {
+            "$ref": "icon"
+          },
+          "x": 264,
+          "y": 268,
+          "width": 48,
+          "height": 80,
+          "props": {
+            "fill": "#6FE4CC",
+            "cornerRadius": 0
+          }
+        }
+      }
+    ]
+  }
+}

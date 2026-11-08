@@ -1,0 +1,768 @@
+{
+  "version": "0.1.0",
+  "document": {
+    "id": "8522da2e4d1c8843cf6a42bea7f48a10cd5dbec7a80833510e861ed1ad729324",
+    "name": "matrix.xlsx",
+    "format": "xlsx",
+    "pages": [
+      {
+        "id": "sheet-1",
+        "name": "Revenue Hierarchy",
+        "kind": "sheet",
+        "hidden": false,
+        "grid": {
+          "rows": 7,
+          "cols": 6,
+          "cells": [
+            {
+              "row": 1,
+              "col": 3,
+              "value": "FY2026",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 2,
+              "col": 3,
+              "value": "H1",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 2,
+              "col": 5,
+              "value": "H2",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 3,
+              "col": 3,
+              "value": "Q1",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 3,
+              "col": 4,
+              "value": "Q2",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 3,
+              "col": 5,
+              "value": "Q3",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 3,
+              "col": 6,
+              "value": "Q4",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 4,
+              "col": 1,
+              "value": "Hardware",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 4,
+              "col": 2,
+              "value": "Laptops",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 2,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 3,
+              "value": "100",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 4,
+              "value": "120",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 5,
+              "value": "140",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 4,
+              "col": 6,
+              "value": "160",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 2,
+              "value": "Accessories",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 2,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 3,
+              "value": "20",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 4,
+              "value": "25",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 5,
+              "value": "30",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 5,
+              "col": 6,
+              "value": "35",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 1,
+              "value": "Software",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": true,
+                "indent": 0,
+                "fill": "FFDCEAFE"
+              }
+            },
+            {
+              "row": 6,
+              "col": 2,
+              "value": "Licenses",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 2,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 3,
+              "value": "200",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 4,
+              "value": "220",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 5,
+              "value": "240",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 6,
+              "col": 6,
+              "value": "260",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 7,
+              "col": 2,
+              "value": "Support",
+              "kind": "text",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 2,
+                "fill": null
+              }
+            },
+            {
+              "row": 7,
+              "col": 3,
+              "value": "50",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 7,
+              "col": 4,
+              "value": "55",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 7,
+              "col": 5,
+              "value": "60",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            },
+            {
+              "row": 7,
+              "col": 6,
+              "value": "65",
+              "kind": "number",
+              "formula": null,
+              "style": {
+                "bold": false,
+                "indent": 0,
+                "fill": null
+              }
+            }
+          ],
+          "merges": [
+            {
+              "top": 1,
+              "left": 3,
+              "bottom": 1,
+              "right": 6
+            },
+            {
+              "top": 2,
+              "left": 3,
+              "bottom": 2,
+              "right": 4
+            },
+            {
+              "top": 2,
+              "left": 5,
+              "bottom": 2,
+              "right": 6
+            },
+            {
+              "top": 4,
+              "left": 1,
+              "bottom": 5,
+              "right": 1
+            },
+            {
+              "top": 6,
+              "left": 1,
+              "bottom": 7,
+              "right": 1
+            }
+          ],
+          "hidden_rows": [],
+          "hidden_cols": []
+        },
+        "blocks": []
+      }
+    ],
+    "warnings": [
+      "Formula values are Excel's saved cached results; formulas are preserved but are not recalculated."
+    ]
+  },
+  "tables": [
+    {
+      "id": "sheet-1_t1",
+      "name": "Revenue Hierarchy",
+      "page_id": "sheet-1",
+      "bounds": {
+        "top": 1,
+        "left": 1,
+        "bottom": 7,
+        "right": 6
+      },
+      "title": null,
+      "column_header": {
+        "top": 1,
+        "left": 3,
+        "bottom": 3,
+        "right": 6
+      },
+      "row_header": {
+        "top": 4,
+        "left": 1,
+        "bottom": 7,
+        "right": 2
+      },
+      "data": {
+        "top": 4,
+        "left": 3,
+        "bottom": 7,
+        "right": 6
+      },
+      "orientation": "matrix",
+      "headers": [
+        {
+          "id": "sheet-1_t1_column_1_3",
+          "label": "FY2026",
+          "axis": "column",
+          "bounds": {
+            "top": 1,
+            "left": 3,
+            "bottom": 1,
+            "right": 6
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_t1_column_2_3",
+          "label": "H1",
+          "axis": "column",
+          "bounds": {
+            "top": 2,
+            "left": 3,
+            "bottom": 2,
+            "right": 4
+          },
+          "parent_id": "sheet-1_t1_column_1_3"
+        },
+        {
+          "id": "sheet-1_t1_column_2_5",
+          "label": "H2",
+          "axis": "column",
+          "bounds": {
+            "top": 2,
+            "left": 5,
+            "bottom": 2,
+            "right": 6
+          },
+          "parent_id": "sheet-1_t1_column_1_3"
+        },
+        {
+          "id": "sheet-1_t1_column_3_3",
+          "label": "Q1",
+          "axis": "column",
+          "bounds": {
+            "top": 3,
+            "left": 3,
+            "bottom": 3,
+            "right": 3
+          },
+          "parent_id": "sheet-1_t1_column_2_3"
+        },
+        {
+          "id": "sheet-1_t1_column_3_4",
+          "label": "Q2",
+          "axis": "column",
+          "bounds": {
+            "top": 3,
+            "left": 4,
+            "bottom": 3,
+            "right": 4
+          },
+          "parent_id": "sheet-1_t1_column_2_3"
+        },
+        {
+          "id": "sheet-1_t1_column_3_5",
+          "label": "Q3",
+          "axis": "column",
+          "bounds": {
+            "top": 3,
+            "left": 5,
+            "bottom": 3,
+            "right": 5
+          },
+          "parent_id": "sheet-1_t1_column_2_5"
+        },
+        {
+          "id": "sheet-1_t1_column_3_6",
+          "label": "Q4",
+          "axis": "column",
+          "bounds": {
+            "top": 3,
+            "left": 6,
+            "bottom": 3,
+            "right": 6
+          },
+          "parent_id": "sheet-1_t1_column_2_5"
+        },
+        {
+          "id": "sheet-1_t1_row_4_1",
+          "label": "Hardware",
+          "axis": "row",
+          "bounds": {
+            "top": 4,
+            "left": 1,
+            "bottom": 5,
+            "right": 1
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_t1_row_4_2",
+          "label": "Laptops",
+          "axis": "row",
+          "bounds": {
+            "top": 4,
+            "left": 2,
+            "bottom": 4,
+            "right": 2
+          },
+          "parent_id": "sheet-1_t1_row_4_1"
+        },
+        {
+          "id": "sheet-1_t1_row_5_2",
+          "label": "Accessories",
+          "axis": "row",
+          "bounds": {
+            "top": 5,
+            "left": 2,
+            "bottom": 5,
+            "right": 2
+          },
+          "parent_id": "sheet-1_t1_row_4_1"
+        },
+        {
+          "id": "sheet-1_t1_row_6_1",
+          "label": "Software",
+          "axis": "row",
+          "bounds": {
+            "top": 6,
+            "left": 1,
+            "bottom": 7,
+            "right": 1
+          },
+          "parent_id": null
+        },
+        {
+          "id": "sheet-1_t1_row_6_2",
+          "label": "Licenses",
+          "axis": "row",
+          "bounds": {
+            "top": 6,
+            "left": 2,
+            "bottom": 6,
+            "right": 2
+          },
+          "parent_id": "sheet-1_t1_row_6_1"
+        },
+        {
+          "id": "sheet-1_t1_row_7_2",
+          "label": "Support",
+          "axis": "row",
+          "bounds": {
+            "top": 7,
+            "left": 2,
+            "bottom": 7,
+            "right": 2
+          },
+          "parent_id": "sheet-1_t1_row_6_1"
+        }
+      ],
+      "evidence": "Llama vision + exact cell facts + Luna region normalization and merged-header closure, tile 1"
+    }
+  ],
+  "schema": {
+    "entities": [
+      {
+        "id": "entity_sheet-1_t1",
+        "name": "Revenue Hierarchy",
+        "table_id": "sheet-1_t1",
+        "attributes": [
+          {
+            "name": "row_header_1",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 4,
+                  "left": 1,
+                  "bottom": 7,
+                  "right": 1
+                }
+              }
+            },
+            "sample_values": [
+              "Hardware",
+              "Software"
+            ]
+          },
+          {
+            "name": "row_header_2",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 4,
+                  "left": 2,
+                  "bottom": 7,
+                  "right": 2
+                }
+              }
+            },
+            "sample_values": [
+              "Hardware / Laptops",
+              "Hardware / Accessories",
+              "Software / Licenses",
+              "Software / Support"
+            ]
+          },
+          {
+            "name": "column_header_1",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 1,
+                  "left": 3,
+                  "bottom": 1,
+                  "right": 6
+                }
+              }
+            },
+            "sample_values": [
+              "FY2026"
+            ]
+          },
+          {
+            "name": "column_header_2",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 2,
+                  "left": 3,
+                  "bottom": 2,
+                  "right": 6
+                }
+              }
+            },
+            "sample_values": [
+              "H1",
+              "H2"
+            ]
+          },
+          {
+            "name": "column_header_3",
+            "data_type": "TEXT",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 3,
+                  "left": 3,
+                  "bottom": 3,
+                  "right": 6
+                }
+              }
+            },
+            "sample_values": [
+              "Q1",
+              "Q2",
+              "Q3",
+              "Q4"
+            ]
+          },
+          {
+            "name": "value",
+            "data_type": "INTEGER",
+            "nullable": false,
+            "primary_key": false,
+            "source": {
+              "page_id": "sheet-1",
+              "region": {
+                "kind": "cells",
+                "bounds": {
+                  "top": 4,
+                  "left": 3,
+                  "bottom": 7,
+                  "right": 6
+                }
+              }
+            },
+            "sample_values": [
+              "100",
+              "120",
+              "140",
+              "160",
+              "20"
+            ]
+          }
+        ],
+        "row_count": 16
+      }
+    ],
+    "relationships": [],
+    "warnings": [
+      "Revenue Hierarchy: matrix unpivoted into header dimensions and value; composite key and dimension entities require review."
+    ]
+  },
+  "pages": [
+    {
+      "page_id": "sheet-1",
+      "page_name": "Revenue Hierarchy",
+      "state": "complete",
+      "tiles_total": 1,
+      "tiles_completed": 1,
+      "message": "All populated tiles processed"
+    }
+  ],
+  "warnings": [
+    "Formula values are Excel's saved cached results; formulas are preserved but are not recalculated."
+  ],
+  "model": "unsloth/gemma-4-E4B-it-GGUF:Q4_K_XL"
+}

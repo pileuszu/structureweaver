@@ -1,0 +1,21 @@
+erDiagram
+    direction LR
+    %% Inferred draft. Dashed relationships are candidates requiring review.
+    E1["Customers"] {
+        INTEGER field_1 PK "customer_id"
+        TEXT field_2 "customer_name"
+        TEXT field_3 "country"
+    }
+    E2["Orders"] {
+        INTEGER field_1 PK "order_id"
+        INTEGER field_2 FK "customer_id"
+        INTEGER field_3 "amount"
+    }
+    E3["LineItems"] {
+        INTEGER field_1 PK "line_id"
+        INTEGER field_2 FK "order_id"
+        TEXT field_3 "product_name"
+        INTEGER field_4 "quantity"
+    }
+    E1 ||..o{ E2 : "customer_id to customer_id (candidate)"
+    E2 ||..o{ E3 : "order_id to order_id (candidate)"
