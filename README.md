@@ -76,6 +76,6 @@ mkdir -p output
 
 CLI에서 원본 보기로 바로 열려면 `./scripts/cargo.sh run --release -- open fixtures/fidelity.xlsx`를 실행합니다. 모델 분석은 자동으로 시작하지 않습니다.
 
-설치된 Excel의 차트·도형 PNG를 가져오는 경로는 `excel-render-experimental` 기능으로 분리했습니다. `./scripts/cargo.sh run --features excel-render-experimental -- open fixtures/fidelity.xlsx`로 시험할 수 있습니다. 현재 이 컴퓨터의 Excel은 통합 문서를 여는 Apple Event 요청에 `-1712` 시간 초과로 응답해 전체 동작 검증을 완료하지 못했습니다. 기본 릴리스에는 이 버튼이 표시되지 않습니다. 이 경로도 원본 셀은 Rust로 표시하며, PNG의 효과 여백과 3D 도형 위치까지 픽셀 단위 일치를 검증한 상태는 아닙니다.
+셀·차트·도형과 효과는 모두 Rust 자체 렌더러로 표시합니다. Microsoft Excel이나 Office 설치가 필요하지 않으며, 외부 앱을 호출하는 렌더링 경로는 사용하지 않습니다. Excel과의 표시 차이는 위 지원 한계에 명시합니다.
 
 `design/`에는 DesignCraft CLI로 만든 화면 설계 원본과 FigCraft의 로컬 제어 프로토콜로 제작한 벡터 브랜드 아이콘이 있습니다. 화면 설계 문서는 편집 가능한 디자인 참고 자료이며, 실행되는 앱 화면은 `src/ui.rs`에서 구현합니다. 요청하신 [FigCraft의 UI 스타일](https://github.com/storytold/figcraft)을 참고해 흰색 패널·회색 캔버스·초록색 선택 상태·하단 툴바를 실제 Rust UI에 반영했습니다. 재생성 스크립트는 `scripts/design_*`에 있습니다. [실제 로컬 모델 검증 결과](docs/verification/README.md)와 합성 예제도 포함했습니다.

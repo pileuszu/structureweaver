@@ -66,13 +66,11 @@ impl SheetView {
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
-        page: (&str, &str),
+        page_key: &str,
         grid: &Grid,
         selection: (&mut u32, &mut u32),
         tables: &[&Table],
-        excel: &mut crate::excel_preview::ExcelPreview,
     ) {
-        let (page_key, sheet_name) = page;
         let (selected_row, selected_col) = selection;
         let fresh = self.page != page_key;
         if fresh {
@@ -142,14 +140,9 @@ impl SheetView {
                 self.rebuild_axes(grid);
             }
         }
-        if excel.enabled() && self.show_hidden {
-            self.show_hidden = false;
-            self.rebuild_axes(grid);
-        }
         if self.previous_selection != (*selected_row, *selected_col) {
             self.scroll_to_selection = true;
-            if !excel.enabled()
-                && !self.show_hidden
+            if !self.show_hidden
                 && (grid.hidden_rows.contains(selected_row)
                     || grid.hidden_cols.contains(selected_col))
             {
@@ -194,8 +187,7 @@ impl SheetView {
             }
             if (!grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty())
                 && ui
-                    .add_enabled(!excel.enabled(), egui::Checkbox::new(&mut self.show_hidden, "숨김 영역 표시"))
-                    .on_hover_text("숨김 영역을 펼치려면 Rust 미리보기를 선택하세요. Excel 개체는 원본 시트 좌표를 유지합니다.")
+                    .checkbox(&mut self.show_hidden, "숨김 영역 표시")
                     .changed()
             {
                 self.rebuild_axes(grid);
@@ -206,7 +198,6 @@ impl SheetView {
             }
         });
         if jump
-            && !excel.enabled()
             && !self.show_hidden
             && (grid.hidden_rows.contains(selected_row) || grid.hidden_cols.contains(selected_col))
         {
@@ -214,8 +205,7 @@ impl SheetView {
             self.rebuild_axes(grid);
         }
         self.scroll_to_selection |= jump;
-        let drawing_layers = excel.layers(sheet_name, &grid.layout.drawings);
-        let mut extent = excel.extent(sheet_name) * POINT_SCALE;
+        let mut extent = Vec2::ZERO;
         for object in &grid.layout.drawings {
             let rect = self.drawing_rect(&object.anchor, Pos2::ZERO, 1.0);
             let outset = object.visual_outset(rect.size(), 1.0);
@@ -331,23 +321,14 @@ impl SheetView {
             let (rect, _) =
                 ui.allocate_exact_size(ui.available_size().max(Vec2::splat(50.0)), Sense::hover());
             let painter = ui.painter_at(rect);
-            for layer in &drawing_layers {
-                match *layer {
-                    crate::excel_preview::Layer::Native(index) => self.drawings.paint_with_fonts(
-                        &painter,
-                        rect.shrink(10.0),
-                        &grid.layout.drawings[index],
-                        self.zoom,
-                        &|run| self.fonts.family(&drawing_text_style(run)),
-                    ),
-                    crate::excel_preview::Layer::Excel(index) => excel.paint(
-                        &painter,
-                        index,
-                        rect.min,
-                        self.zoom,
-                        Some(rect.shrink(10.0)),
-                    ),
-                }
+            for object in &grid.layout.drawings {
+                self.drawings.paint_with_fonts(
+                    &painter,
+                    rect.shrink(10.0),
+                    object,
+                    self.zoom,
+                    &|run| self.fonts.family(&drawing_text_style(run)),
+                );
             }
             return;
         }
@@ -528,15 +509,7 @@ impl SheetView {
                         egui::StrokeKind::Inside,
                     );
                 }
-                for layer in &drawing_layers {
-                    let index = match *layer {
-                        crate::excel_preview::Layer::Native(index) => index,
-                        crate::excel_preview::Layer::Excel(index) => {
-                            excel.paint(&p, index, origin, z * POINT_SCALE, None);
-                            continue;
-                        }
-                    };
-                    let object = &grid.layout.drawings[index];
+                for object in &grid.layout.drawings {
                     let rect = self.drawing_rect(&object.anchor, origin, z);
                     // Rotation may extend past the anchor; the painter clips each frozen pane.
                     let radius = rect.size().length() / 2.0 + object.visual_outset(rect.size(), z);

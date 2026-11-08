@@ -122,7 +122,6 @@ struct Desktop {
     inspect_col: u32,
     zoom: f32,
     sheet_view: crate::sheet_view::SheetView,
-    excel_preview: crate::excel_preview::ExcelPreview,
 }
 
 impl Desktop {
@@ -215,7 +214,6 @@ impl Desktop {
             inspect_col: 1,
             zoom: 1.0,
             sheet_view: crate::sheet_view::SheetView::new(fonts),
-            excel_preview: Default::default(),
         }
     }
 
@@ -625,15 +623,12 @@ impl Desktop {
         }
         ui.add_space(5.0);
         if let Some(grid) = &page.grid {
-            self.excel_preview
-                .controls(ui, &document.id, self.file.as_deref());
             self.sheet_view.show(
                 ui,
-                (&format!("{}:{}", document.id, page.id), &page.name),
+                &format!("{}:{}", document.id, page.id),
                 grid,
                 (&mut self.inspect_row, &mut self.inspect_col),
                 &tables,
-                &mut self.excel_preview,
             );
         } else {
             ui.label("이 페이지는 시트 미리보기를 지원하지 않습니다.");

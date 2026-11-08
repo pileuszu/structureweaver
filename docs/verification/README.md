@@ -64,22 +64,14 @@ Native UI inspection confirms 3D columns/pies and effect rendering. Native shado
 glow, soft edges, reflection and shape depth display in the source canvas. Saved
 layout and measured automatic margins have automated coverage, as do finite
 projection under extreme camera values, negative pie labels, effect bounds beyond
-the anchor, nested groups and malformed saved effect parameters. **105 tests**,
+the anchor, nested groups and malformed saved effect parameters. **98 tests**,
 strict Clippy and formatting checks pass. Pure native Office lighting, typography
 and layout remain approximate; reflected/projected shape text and combined 3D/2D
 effects are specifically disclosed in the source view.
 
-The installed-Excel bridge is **experimental, disabled by default, and not an
-end-to-end verified fidelity solution**. CUA-driven application tests exposed
-timeouts reading Excel's active workbook and opening a temporary workbook
-(`-1712`), including after restarting Excel with only synthetic workbooks open.
-The bridge now avoids all global security/events/calculation APIs and generates a
-static XLSX with cached cell values, no VBA/ActiveX/OLE/external connections or
-worksheet formulas. Tests verify source immutability and package sanitation.
-Manual Excel Save as Picture succeeds for the synthetic shadow shape; the PNG
-includes asymmetric padding and 150-dpi metadata. The experimental viewer keeps
-physical aspect/size and can register flat opaque fills, but arbitrary 3D/group
-image origins remain unverified. No claim of pixel identity is made.
+As of 2026-11-09, source rendering uses Rust exclusively and requires no Microsoft
+Excel or Office installation. The earlier Excel comparisons are development
+checks against synthetic fixtures, not an application runtime dependency.
 
 ## Local model inference — 2026-11-06
 

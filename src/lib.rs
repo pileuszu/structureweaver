@@ -4,8 +4,6 @@ pub mod conditional;
 mod conditional_icons;
 pub mod domain;
 pub mod drawings;
-mod excel_preview;
-pub mod excel_render;
 pub mod export;
 pub mod ingest;
 pub mod llama;

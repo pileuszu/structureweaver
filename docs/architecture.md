@@ -13,8 +13,6 @@
 | `drawings.rs` / `ooxml.rs` | Bounded OPC relationships, anchored shapes/groups/images/VML appearance, text and native drawing renderer |
 | `chart_3d.rs` | Depth-sorted 3D chart meshes, camera projection and bounded scene geometry |
 | `drawing_effects.rs` | Bounded alpha-mask compositing for shadows, glow, soft edges and reflection; projected shape depth/bevel |
-| `excel_render.rs` / `.applescript` | Experimental installed-Excel object export through a static, macro-free temporary snapshot; disabled in the default UI |
-| `excel_preview.rs` | In-memory image textures, drawing-order replacement, physical PNG sizing and opaque-fill registration |
 | `sheet_view.rs` | Read-only native worksheet canvas with source fonts, geometry, merges, frozen panes and viewport culling |
 | `render.rs` | Unicode text and cell-type overlay PNGs with global row/column labels |
 | `llama.rs` | Local-only blocking HTTP transport, model discovery, vision + JSON schema requests, bounded errors/timeouts |
@@ -56,6 +54,8 @@ Reference commit: `bist-mini-final/bist-mini-final@0e0d7638b96c9f9db816c3959cec6
 New behavior: include hidden content, visit all populated tiles, reconcile whole-sheet fragments, infer/inspect ERD candidates, local Llama transport and native desktop UI. No Python runtime is used by the application. Basic fixtures use a development-only Python standard library generator; the visual styling fixture additionally uses openpyxl to normalize its OOXML package.
 
 ## Source appearance
+
+Cells, charts, drawings and effects are rendered entirely in Rust. Microsoft Excel and Office are not runtime dependencies, and the application does not delegate rendering to an installed office application.
 
 `Cell.value` remains the typed source text for analysis. `raw_number` retains numeric OOXML values (including date serials); `display_value` and the stored number format are for presentation only. `Grid.layout` records dimensions, row/column defaults, hidden axes, gridlines, zoom and frozen panes. New style/layout fields use serde defaults so previously exported analyses remain readable; their original workbook must be reopened to recover styling that old exports did not store.
 
