@@ -6,6 +6,8 @@ scripts/cargo.sh build --release --locked
 bundle="$PWD/dist/StructureWeaver.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp target/release/structureweaver "$bundle/Contents/MacOS/structureweaver"
+mkdir -p "$bundle/Contents/Resources/licenses"
+cp assets/fonts/OFL.txt "$bundle/Contents/Resources/licenses/Pretendard-OFL.txt"
 if [ -f design/brand@2x.png ]; then
   iconset="$PWD/dist/StructureWeaver.iconset"
   mkdir -p "$iconset"

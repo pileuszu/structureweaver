@@ -60,4 +60,6 @@ mkdir -p output
 
 ## 디자인 / 검증 자료
 
+화면에는 Pretendard Regular·SemiBold를 내장해 한글·영문을 함께 표시합니다. 별도 폰트 설치가 필요 없으며, 글꼴 라이선스는 `assets/fonts/OFL.txt`와 앱 번들에 포함됩니다.
+
 `design/`에는 DesignCraft CLI로 만든 화면 설계 원본과 FigCraft의 로컬 제어 프로토콜로 제작한 벡터 브랜드 아이콘이 있습니다. 화면 설계 문서는 편집 가능한 디자인 참고 자료이며, 실행되는 앱 화면은 `src/ui.rs`에서 구현합니다. 요청하신 [FigCraft의 UI 스타일](https://github.com/storytold/figcraft)을 참고해 흰색 패널·회색 캔버스·초록색 선택 상태·하단 툴바를 실제 Rust UI에 반영했습니다. 재생성 스크립트는 `scripts/design_*`에 있습니다. [실제 로컬 모델 검증 결과](docs/verification/README.md)와 합성 예제도 포함했습니다.

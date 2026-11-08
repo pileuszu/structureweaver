@@ -136,36 +136,49 @@ impl Desktop {
         style.spacing.interact_size.y = 30.0;
         style
             .text_styles
-            .insert(egui::TextStyle::Body, FontId::proportional(13.0));
+            .insert(egui::TextStyle::Body, FontId::proportional(14.0));
         style
             .text_styles
-            .insert(egui::TextStyle::Heading, FontId::proportional(24.0));
+            .insert(egui::TextStyle::Button, semibold_font(13.5));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Small, FontId::proportional(11.5));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Heading, semibold_font(24.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Monospace, FontId::monospace(13.0));
         cc.egui_ctx.set_style(style);
-        for path in [
-            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-            "C:\\Windows\\Fonts\\malgun.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        ] {
-            if let Ok(bytes) = std::fs::read(path) {
-                let mut fonts = egui::FontDefinitions::default();
-                fonts.font_data.insert(
-                    "document-language".into(),
-                    egui::FontData::from_owned(bytes).into(),
-                );
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Proportional)
-                    .or_default()
-                    .push("document-language".into());
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Monospace)
-                    .or_default()
-                    .push("document-language".into());
-                cc.egui_ctx.set_fonts(fonts);
-                break;
-            }
-        }
+
+        // Embedded faces keep Korean and Latin typography consistent on every machine.
+        // The dedicated family uses real SemiBold outlines instead of synthetic emphasis.
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "pretendard-regular".into(),
+            egui::FontData::from_static(include_bytes!("../assets/fonts/Pretendard-Regular.otf"))
+                .into(),
+        );
+        fonts.font_data.insert(
+            "pretendard-semibold".into(),
+            egui::FontData::from_static(include_bytes!("../assets/fonts/Pretendard-SemiBold.otf"))
+                .into(),
+        );
+        let proportional = fonts
+            .families
+            .entry(egui::FontFamily::Proportional)
+            .or_default();
+        proportional.insert(0, "pretendard-regular".into());
+        let mut semibold = proportional.clone();
+        semibold.insert(0, "pretendard-semibold".into());
+        fonts.families.insert(semibold_family(), semibold);
+        // Preserve the default monospace face for coordinates/data; Korean falls back to Pretendard.
+        fonts
+            .families
+            .entry(egui::FontFamily::Monospace)
+            .or_default()
+            .push("pretendard-regular".into());
+        cc.egui_ctx.set_fonts(fonts);
         Self {
             endpoint: "http://127.0.0.1:9931/v1".into(),
             model: String::new(),
@@ -399,16 +412,16 @@ impl Desktop {
                         self.load(ctx, path);
                     }
                     ui.add_space(3.0);
-                    ui.label(RichText::new("XLSX · XLSM / 파일을 끌어 놓으세요").size(11.0).color(MUTED));
+                    ui.label(RichText::new("XLSX · XLSM / 파일을 끌어 놓으세요").size(11.5).color(MUTED));
                     ui.add_space(20.0);
                     if let Some(document) = &self.document {
                         card_frame().show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
                             eyebrow(ui, "현재 문서", ACCENT);
                             ui.add_space(6.0);
-                            ui.label(RichText::new(&document.name).size(15.0).strong());
+                            ui.label(RichText::new(&document.name).size(15.0).family(semibold_family()));
                             ui.add_space(3.0);
-                            ui.label(RichText::new(format!("{}개 시트 · 원본 좌표 유지", document.pages.len())).size(11.0).color(MUTED));
+                            ui.label(RichText::new(format!("{}개 시트 · 원본 좌표 유지", document.pages.len())).size(11.5).color(MUTED));
                         });
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {
@@ -429,9 +442,10 @@ impl Desktop {
                                 let icon = rect.min + Vec2::new(16.0, 18.0);
                                 painter.rect_stroke(egui::Rect::from_center_size(icon, Vec2::new(12.0, 13.0)), 2.0, Stroke::new(1.0_f32, if selected { ACCENT } else { MUTED }), egui::StrokeKind::Inside);
                                 painter.line_segment([icon + Vec2::new(-4.0, -1.0), icon + Vec2::new(4.0, -1.0)], Stroke::new(1.0_f32, MUTED));
-                                painter.text(rect.min + Vec2::new(31.0, 18.0), Align2::LEFT_CENTER, fit_label(painter, &page.name, FontId::proportional(13.0), rect.width() - 40.0), FontId::proportional(13.0), if selected { TEXT } else { MUTED });
+                                let sheet_font = if selected { semibold_font(13.5) } else { FontId::proportional(13.5) };
+                                painter.text(rect.min + Vec2::new(31.0, 18.0), Align2::LEFT_CENTER, fit_label(painter, &page.name, sheet_font.clone(), rect.width() - 40.0), sheet_font, if selected { TEXT } else { MUTED });
                                 if let Some(grid) = &page.grid {
-                                    painter.text(rect.min + Vec2::new(31.0, 37.0), Align2::LEFT_CENTER, format!("{} × {}{}", grid.rows, grid.cols, if page.hidden { " · 숨김" } else { "" }), FontId::proportional(10.5), MUTED);
+                                    painter.text(rect.min + Vec2::new(31.0, 37.0), Align2::LEFT_CENTER, format!("{} × {}{}", grid.rows, grid.cols, if page.hidden { " · 숨김" } else { "" }), FontId::proportional(11.5), MUTED);
                                 }
                                 if response.clicked() {
                                     self.selected_page = index;
@@ -445,9 +459,9 @@ impl Desktop {
                         });
                     } else {
                         card_frame().show(ui, |ui| {
-                            ui.label(RichText::new("문서를 기다리고 있어요").size(14.0).strong());
+                            ui.label(RichText::new("문서를 기다리고 있어요").size(14.0).family(semibold_family()));
                             ui.add_space(6.0);
-                            ui.label(RichText::new("숨김 시트를 포함한 전체 구조를 함께 분석합니다.").size(12.0).color(MUTED));
+                            ui.label(RichText::new("숨김 시트를 포함한 전체 구조를 함께 분석합니다.").size(13.0).color(MUTED));
                         });
                     }
                     ui.add_space(24.0);
@@ -460,14 +474,14 @@ impl Desktop {
                         });
                     });
                     ui.add_space(10.0);
-                    ui.label(RichText::new("비전 모델").size(12.0).color(MUTED));
+                    ui.label(RichText::new("비전 모델").size(13.0).color(MUTED));
                     ui.add_enabled_ui(!self.busy, |ui| {
                         let label = if self.model.is_empty() { "모델을 선택하세요".into() } else { short_model(&self.model) };
                         egui::ComboBox::from_id_salt("model").selected_text(label).width(ui.available_width() - 10.0).show_ui(ui, |ui| {
                             for model in &self.models { ui.selectable_value(&mut self.model, model.clone(), model); }
                         }).response.on_hover_text(&self.model);
                         ui.add_space(4.0);
-                        ui.collapsing(RichText::new("연결 설정").size(12.0).color(MUTED), |ui| {
+                        ui.collapsing(RichText::new("연결 설정").size(13.0).color(MUTED), |ui| {
                             ui.label(RichText::new("API URL").small().color(MUTED));
                             if ui.add(egui::TextEdit::singleline(&mut self.endpoint).desired_width(f32::INFINITY)).changed() { self.connected = false; }
                             ui.label(RichText::new("모델 ID 직접 입력").small().color(MUTED));
@@ -476,20 +490,20 @@ impl Desktop {
                     });
                     if ui.add_enabled(!self.busy, egui::Button::new("모델 연결 / 새로고침").min_size(Vec2::new(ui.available_width(), 33.0)).corner_radius(6.0)).clicked() { self.connect(ctx); }
                     ui.add_space(7.0);
-                    ui.label(RichText::new("이 컴퓨터의 Llama에서 분석합니다.").size(11.0).color(MUTED));
+                    ui.label(RichText::new("이 컴퓨터의 Llama에서 분석합니다.").size(11.5).color(MUTED));
                     ui.add_space(19.0);
                     if self.analyzing {
                         if ui.add_enabled(!self.cancel.load(Ordering::Relaxed), egui::Button::new("분석 취소").min_size(Vec2::new(ui.available_width(), 42.0))).clicked() {
                             self.cancel.store(true, Ordering::Relaxed);
                             self.status = "취소를 요청했습니다. 현재 Llama 응답을 기다립니다 (최대 180초).".into();
                         }
-                        ui.label(RichText::new("진행 중인 요청은 응답 또는 제한 시간까지 기다립니다.").size(11.0).color(MUTED));
+                        ui.label(RichText::new("진행 중인 요청은 응답 또는 제한 시간까지 기다립니다.").size(11.5).color(MUTED));
                     } else if ui.add_enabled(!self.busy && self.document.is_some() && !self.model.trim().is_empty(),
-                        egui::Button::new(RichText::new("전체 시트 분석하기  →").strong().color(GREEN_INK))
+                        egui::Button::new(RichText::new("전체 시트 분석하기  →").family(semibold_family()).color(GREEN_INK))
                             .fill(BRAND).corner_radius(5.0).min_size(Vec2::new(ui.available_width(), 43.0))
                     ).clicked() { self.start(ctx); }
                     ui.add_space(18.0);
-                    ui.label(RichText::new("문서 → 구조 → 관계").size(11.0).color(MUTED));
+                    ui.label(RichText::new("문서 → 구조 → 관계").size(11.5).color(MUTED));
                 });
             });
     }
@@ -507,7 +521,9 @@ impl Desktop {
             let tables: Vec<_> = self.result.as_ref().map(|r| r.tables.iter().filter(|t| t.page_id == page.id).collect()).unwrap_or_default();
             ui.horizontal_wrapped(|ui| {
                 for table in &tables {
-                    if ui.selectable_label(self.selected_table.as_ref() == Some(&table.id), &table.name).clicked() { self.selected_table = Some(table.id.clone()); }
+                    let selected = self.selected_table.as_ref() == Some(&table.id);
+                    let label = RichText::new(&table.name).family(if selected { semibold_family() } else { egui::FontFamily::Proportional });
+                    if ui.selectable_label(selected, label).clicked() { self.selected_table = Some(table.id.clone()); }
                 }
             });
             if let Some(table) = tables.iter().find(|t| Some(&t.id) == self.selected_table.as_ref()) {
@@ -736,7 +752,7 @@ impl Desktop {
                                 label_pos,
                                 Align2::CENTER_CENTER,
                                 cardinality_label(&relation.cardinality),
-                                FontId::monospace(10.5),
+                                FontId::monospace(11.0),
                                 color,
                             );
                         }
@@ -786,10 +802,10 @@ impl Desktop {
                                 fit_label(
                                     &painter,
                                     &entity.name,
-                                    FontId::proportional(15.5 * z),
+                                    semibold_font(16.0 * z),
                                     card_width - 30.0 * z,
                                 ),
-                                FontId::proportional(15.5 * z),
+                                semibold_font(16.0 * z),
                                 TEXT,
                             );
                             let sheet = result
@@ -804,8 +820,13 @@ impl Desktop {
                             painter.text(
                                 rect.min + Vec2::new(15.0, 44.0) * z,
                                 Align2::LEFT_CENTER,
-                                format!("{} · {}개 행", truncate(sheet, 20), entity.row_count),
-                                FontId::proportional(10.0 * z),
+                                fit_label(
+                                    &painter,
+                                    &format!("{sheet} · {}개 행", entity.row_count),
+                                    FontId::proportional(11.0 * z),
+                                    card_width - 30.0 * z,
+                                ),
+                                FontId::proportional(11.0 * z),
                                 MUTED,
                             );
                             painter.line_segment(
@@ -832,7 +853,7 @@ impl Desktop {
                                     point,
                                     Align2::LEFT_CENTER,
                                     badge,
-                                    FontId::monospace(10.0 * z),
+                                    FontId::monospace(11.0 * z),
                                     color,
                                 );
                                 painter.text(
@@ -841,17 +862,17 @@ impl Desktop {
                                     fit_label(
                                         &painter,
                                         &attr.name,
-                                        FontId::proportional(12.0 * z),
+                                        FontId::proportional(12.5 * z),
                                         card_width - 104.0 * z,
                                     ),
-                                    FontId::proportional(12.0 * z),
+                                    FontId::proportional(12.5 * z),
                                     TEXT,
                                 );
                                 painter.text(
                                     egui::pos2(rect.right() - 12.0 * z, point.y),
                                     Align2::RIGHT_CENTER,
                                     &attr.data_type,
-                                    FontId::monospace(9.0 * z),
+                                    FontId::monospace(11.0 * z),
                                     MUTED,
                                 );
                             }
@@ -859,7 +880,7 @@ impl Desktop {
                                 egui::pos2(rect.left() + 14.0 * z, rect.bottom() - 14.0 * z),
                                 Align2::LEFT_CENTER,
                                 "원본 셀에서 추론한 모델",
-                                FontId::proportional(10.0 * z),
+                                FontId::proportional(11.0 * z),
                                 MUTED,
                             );
                             if response.clicked() {
@@ -905,7 +926,7 @@ impl Desktop {
                         if ui.button("−").on_hover_text("축소").clicked() {
                             self.zoom = (self.zoom - 0.1).max(0.7);
                         }
-                        ui.label(RichText::new(format!("{:.0}%", self.zoom * 100.0)).size(12.0));
+                        ui.label(RichText::new(format!("{:.0}%", self.zoom * 100.0)).size(13.0));
                         if ui.button("+").on_hover_text("확대").clicked() {
                             self.zoom = (self.zoom + 0.1).min(1.35);
                         }
@@ -918,11 +939,11 @@ impl Desktop {
         });
         ui.add_space(7.0);
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("점선 = 관계 후보").size(11.0).color(ACCENT));
+            ui.label(RichText::new("점선 = 관계 후보").size(11.5).color(ACCENT));
             ui.label(RichText::new("·").color(MUTED));
             ui.label(
                 RichText::new("PK / FK는 관측값 기반 추론입니다. 적용 전 검토하세요.")
-                    .size(11.0)
+                    .size(11.5)
                     .color(MUTED),
             );
         });
@@ -954,7 +975,11 @@ impl Desktop {
             );
             return;
         };
-        ui.label(RichText::new(&entity.name).size(21.0).strong());
+        ui.label(
+            RichText::new(&entity.name)
+                .size(21.0)
+                .family(semibold_family()),
+        );
         ui.add_space(5.0);
         ui.horizontal(|ui| {
             pill(ui, &format!("{}개 행", entity.row_count), MUTED);
@@ -964,14 +989,14 @@ impl Desktop {
         card_frame().show(ui, |ui| {
             ui.label(
                 RichText::new("원본과 연결된 설계")
-                    .size(12.0)
+                    .size(13.0)
                     .color(ACCENT)
-                    .strong(),
+                    .family(semibold_family()),
             );
             ui.add_space(5.0);
             ui.label(
                 RichText::new("셀 범위를 눌러 실제 값과 헤더를 확인하세요.")
-                    .size(12.0)
+                    .size(13.0)
                     .color(MUTED),
             );
         });
@@ -979,47 +1004,51 @@ impl Desktop {
         eyebrow(ui, "속성 / SOURCE", MUTED);
         ui.add_space(8.0);
         for attribute in &entity.attributes {
-            egui::CollapsingHeader::new(RichText::new(&attribute.name).size(13.0))
-                .id_salt((&entity.id, &attribute.name))
-                .default_open(attribute.primary_key)
-                .show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        pill(ui, &attribute.data_type, MUTED);
-                        if attribute.primary_key {
-                            pill(ui, "PK 후보", WARM);
-                        }
-                        if attribute.nullable {
-                            pill(ui, "NULL 허용", MUTED);
-                        }
-                    });
-                    if let SourceRegion::Cells { bounds } = attribute.source.region {
-                        let page = result
+            egui::CollapsingHeader::new(
+                RichText::new(&attribute.name)
+                    .size(13.5)
+                    .family(semibold_family()),
+            )
+            .id_salt((&entity.id, &attribute.name))
+            .default_open(attribute.primary_key)
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    pill(ui, &attribute.data_type, MUTED);
+                    if attribute.primary_key {
+                        pill(ui, "PK 후보", WARM);
+                    }
+                    if attribute.nullable {
+                        pill(ui, "NULL 허용", MUTED);
+                    }
+                });
+                if let SourceRegion::Cells { bounds } = attribute.source.region {
+                    let page = result
+                        .document
+                        .pages
+                        .iter()
+                        .find(|p| p.id == attribute.source.page_id);
+                    let name = page
+                        .map(|p| p.name.as_str())
+                        .unwrap_or(&attribute.source.page_id);
+                    if ui
+                        .link(format!("{name} · {}  ↗", range_name(bounds)))
+                        .clicked()
+                        && let Some(index) = result
                             .document
                             .pages
                             .iter()
-                            .find(|p| p.id == attribute.source.page_id);
-                        let name = page
-                            .map(|p| p.name.as_str())
-                            .unwrap_or(&attribute.source.page_id);
-                        if ui
-                            .link(format!("{name} · {}  ↗", range_name(bounds)))
-                            .clicked()
-                            && let Some(index) = result
-                                .document
-                                .pages
-                                .iter()
-                                .position(|p| p.id == attribute.source.page_id)
-                        {
-                            self.selected_page = index;
-                            self.selected_table = Some(entity.table_id.clone());
-                            self.inspect_row = bounds.top;
-                            self.inspect_col = bounds.left;
-                            self.view = View::Structure;
-                        }
+                            .position(|p| p.id == attribute.source.page_id)
+                    {
+                        self.selected_page = index;
+                        self.selected_table = Some(entity.table_id.clone());
+                        self.inspect_row = bounds.top;
+                        self.inspect_col = bounds.left;
+                        self.view = View::Structure;
                     }
-                    ui.label(RichText::new("관측값").size(10.5).color(MUTED));
-                    ui.label(RichText::new(attribute.sample_values.join(" · ")).size(12.0));
-                });
+                }
+                ui.label(RichText::new("관측값").size(11.5).color(MUTED));
+                ui.label(RichText::new(attribute.sample_values.join(" · ")).size(13.0));
+            });
             ui.add_space(3.0);
         }
         ui.add_space(17.0);
@@ -1036,7 +1065,7 @@ impl Desktop {
         if relations.is_empty() {
             ui.label(
                 RichText::new("이 엔터티에서 확인된 관계 후보가 없습니다.")
-                    .size(12.0)
+                    .size(13.0)
                     .color(MUTED),
             );
         }
@@ -1056,7 +1085,11 @@ impl Desktop {
                     .find(|e| e.id == relation.to_entity)
                     .map(|e| e.name.as_str())
                     .unwrap_or(&relation.to_entity);
-                ui.label(RichText::new(format!("{from} → {to}")).size(12.0).strong());
+                ui.label(
+                    RichText::new(format!("{from} → {to}"))
+                        .size(13.0)
+                        .family(semibold_family()),
+                );
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
                     pill(ui, cardinality_label(&relation.cardinality), ACCENT);
@@ -1066,7 +1099,7 @@ impl Desktop {
                         LAVENDER,
                     );
                 });
-                ui.label(RichText::new(&relation.evidence).size(11.0).color(MUTED));
+                ui.label(RichText::new(&relation.evidence).size(11.5).color(MUTED));
             });
             ui.add_space(8.0);
         }
@@ -1083,7 +1116,7 @@ impl Desktop {
                     for page in &result.pages {
                         egui::Frame::group(ui.style()).show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(&page.page_name).strong());
+                                ui.label(RichText::new(&page.page_name).family(semibold_family()));
                                 let failed = page.state.contains("fail")
                                     || page.state.contains("error")
                                     || page.state.contains("partial");
@@ -1155,7 +1188,7 @@ impl Desktop {
                         RichText::new("문서에 숨은 구조를 발견하세요.")
                             .size(28.0)
                             .color(TEXT)
-                            .strong(),
+                            .family(semibold_family()),
                     );
                     ui.add_space(12.0);
                     ui.label(
@@ -1191,9 +1224,11 @@ impl Desktop {
                                 ui.label(RichText::new(number).size(26.0).color(color));
                                 ui.add_space(10.0);
                                 ui.vertical(|ui| {
-                                    ui.label(RichText::new(title).size(15.0).strong());
+                                    ui.label(
+                                        RichText::new(title).size(15.0).family(semibold_family()),
+                                    );
                                     ui.add_space(4.0);
-                                    ui.label(RichText::new(detail).size(12.0).color(MUTED));
+                                    ui.label(RichText::new(detail).size(13.0).color(MUTED));
                                 });
                             });
                         });
@@ -1202,7 +1237,7 @@ impl Desktop {
                     ui.add_space(15.0);
                     ui.label(
                         RichText::new("EXCEL  →  STRUCTURE  →  ERD")
-                            .size(11.0)
+                            .size(11.5)
                             .color(MUTED),
                     );
                 });
@@ -1217,8 +1252,8 @@ impl Desktop {
                     View::Structure => "테이블 · 원본",
                     View::Report => "분석 범위 · 근거",
                 })
-                .size(13.0)
-                .strong(),
+                .size(13.5)
+                .family(semibold_family()),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(result) = &self.result {
@@ -1229,13 +1264,13 @@ impl Desktop {
                             result.schema.entities.len(),
                             result.schema.relationships.len()
                         ))
-                        .size(11.0)
+                        .size(11.5)
                         .color(MUTED),
                     );
                 } else {
                     ui.label(
                         RichText::new("Excel → Structure → ERD")
-                            .size(11.0)
+                            .size(11.5)
                             .color(MUTED),
                     );
                 }
@@ -1319,11 +1354,16 @@ impl Desktop {
                     }
                     response.on_hover_text(label);
                     ui.vertical_centered(|ui| {
-                        ui.label(RichText::new(label).size(10.0).color(if selected {
-                            ACCENT
-                        } else {
-                            MUTED
-                        }));
+                        ui.label(
+                            RichText::new(label)
+                                .size(11.0)
+                                .family(if selected {
+                                    semibold_family()
+                                } else {
+                                    egui::FontFamily::Proportional
+                                })
+                                .color(if selected { ACCENT } else { MUTED }),
+                        );
                     });
                     ui.add_space(12.0);
                 }
@@ -1351,7 +1391,11 @@ impl eframe::App for Desktop {
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
                     woven_mark(ui, 23.0);
-                    ui.label(RichText::new("StructureWeaver").size(13.0).strong());
+                    ui.label(
+                        RichText::new("StructureWeaver")
+                            .size(13.5)
+                            .family(semibold_family()),
+                    );
                     ui.add_space(11.0);
                     egui::Frame::NONE
                         .fill(PANEL)
@@ -1365,7 +1409,7 @@ impl eframe::App for Desktop {
                                         .map(|d| d.name.as_str())
                                         .unwrap_or("새 문서"),
                                 )
-                                .size(12.0),
+                                .size(13.0),
                             );
                         });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1375,8 +1419,8 @@ impl eframe::App for Desktop {
                                 egui::Button::new(
                                     RichText::new("내보내기  ↗")
                                         .color(GREEN_INK)
-                                        .size(12.0)
-                                        .strong(),
+                                        .size(13.0)
+                                        .family(semibold_family()),
                                 )
                                 .fill(BRAND)
                                 .corner_radius(5.0)
@@ -1388,7 +1432,7 @@ impl eframe::App for Desktop {
                             self.export(ctx);
                         }
                         ui.add_space(7.0);
-                        ui.label(RichText::new("로컬 워크스페이스").size(11.0).color(MUTED));
+                        ui.label(RichText::new("로컬 워크스페이스").size(11.5).color(MUTED));
                     });
                 });
             });
@@ -1412,7 +1456,7 @@ impl eframe::App for Desktop {
                         );
                     }
                     ui.add(
-                        egui::Label::new(RichText::new(&self.status).size(11.0).color(MUTED))
+                        egui::Label::new(RichText::new(&self.status).size(11.5).color(MUTED))
                             .truncate(),
                     )
                     .on_hover_text(&self.status);
@@ -1466,7 +1510,7 @@ impl eframe::App for Desktop {
                                         RichText::new(format!(
                                             "{incomplete}개 시트에 검토가 필요한 영역이 있습니다."
                                         ))
-                                        .size(12.0)
+                                        .size(13.0)
                                         .color(WARM),
                                     );
                                     if ui.link("분석 범위 확인 →").clicked() {
@@ -1487,6 +1531,13 @@ impl eframe::App for Desktop {
     }
 }
 
+fn semibold_family() -> egui::FontFamily {
+    egui::FontFamily::Name("Pretendard SemiBold".into())
+}
+fn semibold_font(size: f32) -> FontId {
+    FontId::new(size, semibold_family())
+}
+
 fn card_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(PANEL)
@@ -1495,7 +1546,12 @@ fn card_frame() -> egui::Frame {
         .inner_margin(12.0)
 }
 fn eyebrow(ui: &mut egui::Ui, label: &str, color: Color32) {
-    ui.label(RichText::new(label).size(10.5).color(color).strong());
+    ui.label(
+        RichText::new(label)
+            .size(11.5)
+            .color(color)
+            .family(semibold_family()),
+    );
 }
 fn pill(ui: &mut egui::Ui, label: &str, color: Color32) {
     egui::Frame::NONE
@@ -1508,7 +1564,7 @@ fn pill(ui: &mut egui::Ui, label: &str, color: Color32) {
         .corner_radius(4.0)
         .inner_margin(egui::Margin::symmetric(6, 3))
         .show(ui, |ui| {
-            ui.label(RichText::new(label).size(10.0).color(color));
+            ui.label(RichText::new(label).size(11.0).color(color));
         });
 }
 fn woven_mark(ui: &mut egui::Ui, size: f32) {
