@@ -34,9 +34,16 @@ pub struct SheetView {
     previous_selection: (u32, u32),
     scroll_to_selection: bool,
     fonts: SourceFonts,
+    conditional: crate::conditional::PreparedConditional,
+    display_cells: HashMap<(u32, u32), Cell>,
+    drawings: crate::drawings::DrawingRenderer,
 }
 
 impl SheetView {
+    pub fn invalidate(&mut self) {
+        self.page.clear();
+    }
+
     pub fn new(fonts: egui::FontDefinitions) -> Self {
         Self {
             page: String::new(),
@@ -50,6 +57,9 @@ impl SheetView {
             previous_selection: (0, 0),
             scroll_to_selection: false,
             fonts: SourceFonts::new(fonts),
+            conditional: Default::default(),
+            display_cells: HashMap::new(),
+            drawings: Default::default(),
         }
     }
 
@@ -72,16 +82,48 @@ impl SheetView {
                 .enumerate()
                 .map(|(i, c)| ((c.row, c.col), i))
                 .collect();
+            self.conditional = crate::conditional::prepare(grid, &grid.layout.conditional_formats);
+            self.display_cells.clear();
+            self.drawings.clear();
+            for (&(row, col), appearance) in &self.conditional.cells {
+                let mut cell = self
+                    .cells
+                    .get(&(row, col))
+                    .and_then(|&i| grid.cells.get(i))
+                    .cloned()
+                    .unwrap_or_else(|| Cell {
+                        row,
+                        col,
+                        style: grid
+                            .layout
+                            .row_styles
+                            .get(&row)
+                            .or_else(|| grid.layout.column_styles.get(&col))
+                            .unwrap_or(&grid.layout.default_style)
+                            .clone(),
+                        ..Default::default()
+                    });
+                appearance.style.apply(&mut cell.style);
+                if appearance.style.number_format.is_some() {
+                    cell.display_value = None;
+                }
+                self.display_cells.insert((row, col), cell);
+            }
             self.show_hidden = false;
             self.rebuild_axes(grid);
             self.previous_selection = (0, 0);
             self.scroll_to_selection = true;
-            self.fonts.prepare(ui.ctx(), grid);
+            self.fonts.prepare(ui.ctx(), grid, &self.display_cells);
         } else {
             self.fonts.pending = false;
+            let normal_style = grid
+                .layout
+                .normal_style
+                .as_ref()
+                .unwrap_or(&grid.layout.default_style);
             let font = FontId::new(
-                grid.layout.default_style.font_size * POINT_SCALE,
-                self.fonts.family(&grid.layout.default_style),
+                normal_style.font_size * POINT_SCALE,
+                self.fonts.family(normal_style),
             );
             let measured = ('0'..='9')
                 .map(|ch| {
@@ -115,7 +157,7 @@ impl SheetView {
             jump |= ui
                 .add(
                     egui::DragValue::new(selected_row)
-                        .range(1..=grid.rows.max(1))
+                        .range(1..=self.rows.count().max(1))
                         .speed(1),
                 )
                 .changed();
@@ -123,7 +165,7 @@ impl SheetView {
             jump |= ui
                 .add(
                     egui::DragValue::new(selected_col)
-                        .range(1..=grid.cols.max(1))
+                        .range(1..=self.cols.count().max(1))
                         .speed(1),
                 )
                 .changed();
@@ -205,7 +247,10 @@ impl SheetView {
                     .on_hover_text(text);
                 });
             });
-        if !grid.layout.unsupported_features.is_empty() || !self.fonts.missing.is_empty() {
+        if !grid.layout.unsupported_features.is_empty()
+            || !self.fonts.missing.is_empty()
+            || !self.conditional.warnings.is_empty()
+        {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new("일부 원본 표시가 다를 수 있어요")
@@ -214,6 +259,9 @@ impl SheetView {
                 );
                 ui.collapsing("표시 정보", |ui| {
                     for feature in &grid.layout.unsupported_features {
+                        ui.label(feature);
+                    }
+                    for feature in &self.conditional.warnings {
                         ui.label(feature);
                     }
                     if !self.fonts.missing.is_empty() {
@@ -231,6 +279,21 @@ impl SheetView {
             });
         }
         ui.add_space(4.0);
+        if grid.layout.chart_sheet {
+            let (rect, _) =
+                ui.allocate_exact_size(ui.available_size().max(Vec2::splat(50.0)), Sense::hover());
+            let painter = ui.painter_at(rect);
+            for object in &grid.layout.drawings {
+                self.drawings.paint_with_fonts(
+                    &painter,
+                    rect.shrink(10.0),
+                    object,
+                    self.zoom,
+                    &|run| self.fonts.family(&drawing_text_style(run)),
+                );
+            }
+            return;
+        }
         let available_height = ui.available_height().max(160.0);
         let z = self.zoom;
         let full = Vec2::new(
@@ -374,6 +437,9 @@ impl SheetView {
                 for b in &items {
                     let rect = self.cell_rect(*b, origin, z);
                     self.paint_cell_background(&p, grid, *b, rect, z);
+                    if let Some(appearance) = self.conditional.cells.get(&(b.top, b.left)) {
+                        paint_conditional_visuals(&p, rect, appearance, z);
+                    }
                 }
                 for b in &items {
                     let rect = self.cell_rect(*b, origin, z);
@@ -404,6 +470,18 @@ impl SheetView {
                         Stroke::new(2.0_f32, GREEN),
                         egui::StrokeKind::Inside,
                     );
+                }
+                for object in &grid.layout.drawings {
+                    let rect = self.drawing_rect(&object.anchor, origin, z);
+                    // Rotation may extend past the anchor; the painter clips each frozen pane.
+                    let radius = rect.size().length() / 2.0;
+                    if Rect::from_center_size(rect.center(), Vec2::splat(radius * 2.0))
+                        .intersects(clip)
+                    {
+                        self.drawings.paint_with_fonts(&p, rect, object, z, &|run| {
+                            self.fonts.family(&drawing_text_style(run))
+                        });
+                    }
                 }
             }
             self.paint_headers(
@@ -481,38 +559,103 @@ impl SheetView {
     fn rebuild_axes(&mut self, grid: &Grid) {
         let hidden_rows: HashSet<_> = grid.hidden_rows.iter().copied().collect();
         let hidden_cols: HashSet<_> = grid.hidden_cols.iter().copied().collect();
-        self.rows = Axis::new(grid.rows.max(40), |row| {
-            if !self.show_hidden && hidden_rows.contains(&row) {
-                0.0
-            } else {
-                grid.layout
-                    .row_heights
-                    .get(&row)
-                    .copied()
-                    .unwrap_or(grid.layout.default_row_height)
-                    .max(0.0)
-                    * POINT_SCALE
-            }
-        });
-        self.cols = Axis::new(grid.cols.max(16), |col| {
-            if !self.show_hidden && hidden_cols.contains(&col) {
-                0.0
-            } else {
-                column_pixels(
+        let (drawing_rows, drawing_cols) = drawing_extent(grid, self.digit_width);
+        let conditional_rows = grid
+            .layout
+            .conditional_formats
+            .iter()
+            .flat_map(|r| &r.ranges)
+            .map(|b| b.bottom)
+            .max()
+            .unwrap_or(0);
+        let conditional_cols = grid
+            .layout
+            .conditional_formats
+            .iter()
+            .flat_map(|r| &r.ranges)
+            .map(|b| b.right)
+            .max()
+            .unwrap_or(0);
+        self.rows = Axis::new(
+            grid.rows
+                .max(40)
+                .max(drawing_rows)
+                .max(conditional_rows)
+                .min(1_048_576),
+            |row| {
+                if !self.show_hidden && hidden_rows.contains(&row) {
+                    0.0
+                } else {
                     grid.layout
-                        .column_widths
-                        .get(&col)
+                        .row_heights
+                        .get(&row)
                         .copied()
-                        .unwrap_or(grid.layout.default_col_width),
-                    self.digit_width,
-                )
+                        .unwrap_or(grid.layout.default_row_height)
+                        .max(0.0)
+                        * POINT_SCALE
+                }
+            },
+        );
+        self.cols = Axis::new(
+            grid.cols
+                .max(16)
+                .max(drawing_cols)
+                .max(conditional_cols)
+                .min(16_384),
+            |col| {
+                if !self.show_hidden && hidden_cols.contains(&col) {
+                    0.0
+                } else {
+                    column_pixels(
+                        grid.layout
+                            .column_widths
+                            .get(&col)
+                            .copied()
+                            .unwrap_or(grid.layout.default_col_width),
+                        self.digit_width,
+                    )
+                }
+            },
+        );
+    }
+    fn drawing_rect(&self, anchor: &crate::drawings::DrawingAnchor, origin: Pos2, z: f32) -> Rect {
+        use crate::drawings::DrawingAnchor;
+        let emu = |v: f64| (v / 12700.0) as f32 * POINT_SCALE;
+        let marker = |m: &crate::drawings::Marker| {
+            Vec2::new(
+                self.cols.interval(m.col).0 + emu(m.col_offset_emu),
+                self.rows.interval(m.row).0 + emu(m.row_offset_emu),
+            )
+        };
+        match anchor {
+            DrawingAnchor::TwoCell { from, to } => {
+                Rect::from_two_pos(origin + marker(from) * z, origin + marker(to) * z)
             }
-        });
+            DrawingAnchor::OneCell {
+                from,
+                width_emu,
+                height_emu,
+            } => Rect::from_min_size(
+                origin + marker(from) * z,
+                Vec2::new(emu(*width_emu), emu(*height_emu)) * z,
+            ),
+            DrawingAnchor::Absolute {
+                x_emu,
+                y_emu,
+                width_emu,
+                height_emu,
+            } => Rect::from_min_size(
+                origin + Vec2::new(emu(*x_emu), emu(*y_emu)) * z,
+                Vec2::new(emu(*width_emu), emu(*height_emu)) * z,
+            ),
+        }
     }
-    fn cell<'a>(&self, grid: &'a Grid, row: u32, col: u32) -> Option<&'a Cell> {
-        self.cells.get(&(row, col)).and_then(|&i| grid.cells.get(i))
+    fn cell<'a>(&'a self, grid: &'a Grid, row: u32, col: u32) -> Option<&'a Cell> {
+        self.display_cells
+            .get(&(row, col))
+            .or_else(|| self.cells.get(&(row, col)).and_then(|&i| grid.cells.get(i)))
     }
-    fn style<'a>(&self, grid: &'a Grid, row: u32, col: u32) -> &'a CellStyle {
+    fn style<'a>(&'a self, grid: &'a Grid, row: u32, col: u32) -> &'a CellStyle {
         self.cell(grid, row, col)
             .map(|c| &c.style)
             .or_else(|| grid.layout.row_styles.get(&row))
@@ -625,13 +768,22 @@ impl SheetView {
             return;
         };
         let style = &cell.style;
+        let conditional = self.conditional.cells.get(&(b.top, b.left));
+        if conditional.is_some_and(|c| c.hide_value) {
+            return;
+        }
         let mut text = number_format::display_value(cell, grid.layout.date1904);
         if text.is_empty() {
             return;
         }
         let format_color = number_format::color_override(cell);
-        let color = parse_color(format_color.as_deref().or(style.font_color.as_deref()))
-            .unwrap_or(Color32::from_rgb(24, 24, 24));
+        let color = parse_color(
+            conditional
+                .and_then(|c| c.style.font_color.as_deref())
+                .or(format_color.as_deref())
+                .or(style.font_color.as_deref()),
+        )
+        .unwrap_or(Color32::from_rgb(24, 24, 24));
         let horizontal = match style.horizontal.as_str() {
             "center" | "centerContinuous" => Align::Center,
             "right" => Align::RIGHT,
@@ -640,7 +792,13 @@ impl SheetView {
             _ => Align::LEFT,
         };
         let pad = 3.0 * z;
+        let icon_width = if conditional.is_some_and(|c| c.icon.is_some()) {
+            18.0 * z
+        } else {
+            0.0
+        };
         let indent = style.indent as f32 * 9.0 * z;
+        let rect = Rect::from_min_max(rect.min + Vec2::new(icon_width, 0.0), rect.max);
         let mut clip = rect.shrink2(Vec2::new(1.0, 0.5));
         // Excel lets unwrapped text flow across blank neighbors, but never across occupied cells.
         if b.left == b.right
@@ -1239,9 +1397,18 @@ impl SourceFonts {
     fn has_italic(&self, s: &CellStyle) -> bool {
         !self.pending && self.actual_italics.contains(&Self::key(s))
     }
-    fn prepare(&mut self, ctx: &egui::Context, grid: &Grid) {
+    fn prepare(
+        &mut self,
+        ctx: &egui::Context,
+        grid: &Grid,
+        display_cells: &HashMap<(u32, u32), Cell>,
+    ) {
         self.missing.clear();
         let mut keys: HashSet<_> = grid.cells.iter().map(|c| Self::key(&c.style)).collect();
+        keys.extend(display_cells.values().map(|c| Self::key(&c.style)));
+        for object in &grid.layout.drawings {
+            drawing_font_keys(object, &mut keys);
+        }
         keys.extend(
             grid.layout
                 .row_styles
@@ -1250,6 +1417,9 @@ impl SourceFonts {
                 .map(Self::key),
         );
         keys.insert(Self::key(&grid.layout.default_style));
+        if let Some(normal_style) = &grid.layout.normal_style {
+            keys.insert(Self::key(normal_style));
+        }
         if self.catalog.is_none() {
             self.catalog = Some(font_catalog());
         }
@@ -1385,6 +1555,132 @@ fn font_catalog() -> Vec<FontFace> {
     catalog
 }
 
+fn drawing_text_style(run: &crate::drawings::TextRun) -> CellStyle {
+    CellStyle {
+        font_name: run.font_name.clone(),
+        font_size: run.size,
+        bold: run.bold,
+        italic: run.italic,
+        ..Default::default()
+    }
+}
+fn drawing_font_keys(object: &crate::drawings::DrawingObject, keys: &mut HashSet<FontKey>) {
+    match &object.content {
+        crate::drawings::DrawingContent::Shape(shape) => {
+            for run in shape.paragraphs.iter().flat_map(|p| &p.runs) {
+                keys.insert(SourceFonts::key(&drawing_text_style(run)));
+            }
+        }
+        crate::drawings::DrawingContent::Group { children } => {
+            for child in children {
+                drawing_font_keys(&child.object, keys);
+            }
+        }
+        _ => {}
+    }
+}
+fn drawing_extent(grid: &Grid, digit_width: f32) -> (u32, u32) {
+    use crate::drawings::DrawingAnchor;
+    let h = (grid.layout.default_row_height * POINT_SCALE).max(1.0);
+    let w = column_pixels(grid.layout.default_col_width, digit_width).max(1.0);
+    let extra =
+        |v: f64, size: f32| ((v / 12700.0) as f32 * POINT_SCALE / size).ceil().max(0.0) as u32;
+    let mut rows = 0;
+    let mut cols = 0;
+    for object in &grid.layout.drawings {
+        let (r, c) = match &object.anchor {
+            DrawingAnchor::TwoCell { from, to } => (
+                from.row.max(to.row) + extra(to.row_offset_emu, h) + 2,
+                from.col.max(to.col) + extra(to.col_offset_emu, w) + 2,
+            ),
+            DrawingAnchor::OneCell {
+                from,
+                width_emu,
+                height_emu,
+            } => (
+                from.row
+                    .saturating_add(extra(from.row_offset_emu + height_emu, h))
+                    .saturating_add(2),
+                from.col
+                    .saturating_add(extra(from.col_offset_emu + width_emu, w))
+                    .saturating_add(2),
+            ),
+            DrawingAnchor::Absolute {
+                x_emu,
+                y_emu,
+                width_emu,
+                height_emu,
+            } => (
+                extra(y_emu + height_emu, h).saturating_add(2),
+                extra(x_emu + width_emu, w).saturating_add(2),
+            ),
+        };
+        rows = rows.max(r);
+        cols = cols.max(c);
+    }
+    (rows.min(1_048_576), cols.min(16_384))
+}
+fn paint_conditional_visuals(
+    p: &egui::Painter,
+    rect: Rect,
+    cell: &crate::conditional::ConditionalCell,
+    z: f32,
+) {
+    if let Some(bar) = &cell.data_bar {
+        let r = rect.shrink2(Vec2::new(2.0 * z, 3.0 * z));
+        let x = |v: f32| r.left() + r.width() * v.clamp(0.0, 1.0);
+        let (left, right) = (x(bar.start.min(bar.end)), x(bar.start.max(bar.end)));
+        let color = parse_color(Some(&bar.color)).unwrap_or(GREEN);
+        if right > left && r.height() > 0.0 {
+            let area = Rect::from_min_max(Pos2::new(left, r.top()), Pos2::new(right, r.bottom()));
+            if bar.gradient {
+                let mut mesh = egui::Mesh::default();
+                let pale = Color32::from_rgb(
+                    (color.r() as f32 * 0.15 + 255.0 * 0.85) as u8,
+                    (color.g() as f32 * 0.15 + 255.0 * 0.85) as u8,
+                    (color.b() as f32 * 0.15 + 255.0 * 0.85) as u8,
+                );
+                let (a, b) = if bar.start <= bar.end {
+                    (color, pale)
+                } else {
+                    (pale, color)
+                };
+                for (pos, color) in [
+                    (area.left_top(), a),
+                    (area.right_top(), b),
+                    (area.right_bottom(), b),
+                    (area.left_bottom(), a),
+                ] {
+                    mesh.colored_vertex(pos, color);
+                }
+                mesh.add_triangle(0, 1, 2);
+                mesh.add_triangle(0, 2, 3);
+                p.add(egui::Shape::mesh(mesh));
+            } else {
+                p.rect_filled(area, 0.0, color);
+            }
+        }
+        if let Some(zero) = bar.zero {
+            let x = x(zero);
+            p.line_segment(
+                [Pos2::new(x, r.top()), Pos2::new(x, r.bottom())],
+                Stroke::new(
+                    z.max(0.5),
+                    parse_color(Some(&bar.axis_color)).unwrap_or(Color32::GRAY),
+                ),
+            );
+        }
+    }
+    if let Some(icon) = &cell.icon {
+        let size = (14.0 * z).min((rect.height() - 2.0 * z).max(1.0));
+        crate::conditional_icons::paint(
+            p,
+            Pos2::new(rect.left() + 9.0 * z, rect.center().y),
+            size,
+            icon,
+        );
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

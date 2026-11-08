@@ -1,9 +1,14 @@
 pub mod analysis;
+pub mod charts;
+pub mod conditional;
+mod conditional_icons;
 pub mod domain;
+pub mod drawings;
 pub mod export;
 pub mod ingest;
 pub mod llama;
 pub mod number_format;
+mod ooxml;
 pub mod render;
 pub mod schema;
 mod sheet_view;

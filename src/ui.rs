@@ -311,6 +311,7 @@ impl Desktop {
     }
 
     fn accept_result(&mut self, result: Analysis) {
+        self.sheet_view.invalidate();
         let incomplete = result
             .pages
             .iter()
@@ -350,6 +351,7 @@ impl Desktop {
                     self.log.push(message);
                 }
                 Event::Loaded(path, document) => {
+                    self.sheet_view.invalidate();
                     self.status = format!(
                         "숨김 시트를 포함해 {}개 시트를 읽었습니다.",
                         document.pages.len()

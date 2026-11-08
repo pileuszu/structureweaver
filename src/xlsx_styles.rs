@@ -5,26 +5,27 @@ use quick_xml::{Reader, events::Event};
 use std::collections::HashMap;
 
 #[derive(Default, Clone)]
-struct Node {
-    name: String,
-    attrs: HashMap<String, String>,
-    children: Vec<Node>,
+pub(crate) struct Node {
+    pub name: String,
+    pub attrs: HashMap<String, String>,
+    pub children: Vec<Node>,
+    pub text: String,
 }
 impl Node {
-    fn child(&self, name: &str) -> Option<&Node> {
+    pub fn child(&self, name: &str) -> Option<&Node> {
         self.children.iter().find(|node| node.name == name)
     }
-    fn attr(&self, key: &str) -> Option<&str> {
+    pub fn attr(&self, key: &str) -> Option<&str> {
         self.attrs.get(key).map(String::as_str)
     }
-    fn enabled(&self, key: &str) -> bool {
+    pub fn enabled(&self, key: &str) -> bool {
         matches!(self.attr(key), Some("1" | "true"))
     }
-    fn index(&self, key: &str) -> Option<usize> {
+    pub fn index(&self, key: &str) -> Option<usize> {
         self.attr(key).and_then(|value| value.parse().ok())
     }
 }
-fn parse(xml: &str) -> Result<Node> {
+pub(crate) fn parse(xml: &str) -> Result<Node> {
     let mut reader = Reader::from_str(xml);
     let mut stack = vec![Node::default()];
     loop {
@@ -52,6 +53,7 @@ fn parse(xml: &str) -> Result<Node> {
                         })
                         .collect::<Result<_>>()?,
                     children: vec![],
+                    text: String::new(),
                 };
                 if empty {
                     stack
@@ -73,6 +75,23 @@ fn parse(xml: &str) -> Result<Node> {
                     .children
                     .push(node);
             }
+            Event::Text(text) => {
+                if let Some(node) = stack.last_mut() {
+                    node.text
+                        .push_str(&quick_xml::escape::unescape(&text.decode()?)?);
+                }
+            }
+            Event::GeneralRef(reference) => {
+                if let Some(node) = stack.last_mut() {
+                    let entity = format!("&{};", reference.decode()?);
+                    node.text.push_str(&quick_xml::escape::unescape(&entity)?);
+                }
+            }
+            Event::CData(text) => {
+                if let Some(node) = stack.last_mut() {
+                    node.text.push_str(&text.decode()?);
+                }
+            }
             Event::Eof => break,
             _ => {}
         }
@@ -88,7 +107,7 @@ fn parse(xml: &str) -> Result<Node> {
 }
 
 pub(crate) struct Theme {
-    colors: Vec<String>,
+    pub(crate) colors: Vec<String>,
     major_font: String,
     minor_font: String,
 }
@@ -169,7 +188,7 @@ const INDEXED_COLORS: [&str; 64] = [
     "666699", "969696", "003366", "339966", "003300", "333300", "993300", "993366", "333399",
     "333333",
 ];
-fn resolve_color(node: &Node, theme: &Theme, indexed: &[String]) -> Option<String> {
+pub(crate) fn resolve_color(node: &Node, theme: &Theme, indexed: &[String]) -> Option<String> {
     let color = if let Some(rgb) = node.attr("rgb") {
         normalize_rgb(rgb)
     } else if let Some(index) = node.index("theme") {
@@ -242,6 +261,9 @@ fn resolve_color(node: &Node, theme: &Theme, indexed: &[String]) -> Option<Strin
 pub(crate) struct Styles {
     pub cells: Vec<CellStyle>,
     pub default_style: CellStyle,
+    pub normal_style: CellStyle,
+    pub differential: Vec<crate::conditional::StyleOverlay>,
+    pub indexed: Vec<String>,
 }
 
 fn font(node: &Node, theme: &Theme, indexed: &[String]) -> CellStyle {
@@ -466,9 +488,21 @@ pub(crate) fn styles(xml: &str, theme: &Theme) -> Result<Styles> {
         .unwrap_or_else(|| vec![default_style.clone()]);
     // A cell without an explicit s attribute uses cellXfs index 0 (unless a
     // row/column style applies), which may add formatting to the Normal style.
+    let normal_style = default_style.clone();
     let default_style = cells.first().cloned().unwrap_or(default_style);
     Ok(Styles {
         cells,
         default_style,
+        normal_style,
+        differential: root
+            .child("dxfs")
+            .map(|n| {
+                n.children
+                    .iter()
+                    .map(|n| crate::conditional::StyleOverlay::from_node(n, theme, &indexed))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        indexed,
     })
 }

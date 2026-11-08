@@ -21,10 +21,38 @@ presentation styles are excluded from LLM context so the original analysis budge
 is preserved, and styled blank cells do not schedule inference or inflate missing
 data coverage.
 
-The viewer is read-only and renders common stored cell formatting. Conditional
-formatting, table automatic styles, charts/drawings and other detected unsupported
-features are disclosed in the UI; this is not a pixel-perfect Excel engine.
+This first pass covered stored cell formatting. The subsequent visual-object
+verification below extends it with conditional formatting, charts and drawings.
 User workbooks and session backups are not part of the archived evidence.
+
+## Conditional formatting, charts and drawings — 2026-11-08
+
+`fixtures/visuals.xlsx` is generated with `scripts/make_visual_fixture.py` and
+opens in Excel for Mac without a repair warning. The fixture includes seven
+conditional rules, five vector shapes, an embedded image, a linear gradient,
+nine charts and a standalone chart sheet. The file's Normal style deliberately
+differs from cellXfs[0], testing that object anchor geometry uses the Normal
+font's digit width while default cells retain their own font.
+
+Native UI checks cover conditional fill/font colors, duplicate and formula rules,
+legacy data-bar lengths, color scales, arrow icons, native shapes/text/image,
+gradient appearance, pie rendering without internal triangle seams, scrolling
+through the chart gallery and a full-canvas standalone chart. Chart data with no
+saved cache is resolved from the fixture's separate data sheet. Excel and the
+native application were compared at 100% zoom; some chart auto-layout and
+typography differ, so this is not a claim of pixel identity.
+
+Automated coverage additionally checks rule priority and stopIfTrue, absolute and
+relative formula references, blank ranges beyond used cells, x14 negative bars,
+icon geometry, source-data immutability, chart cache indices/internal references,
+negative stacks/log scales, finite native geometry, DrawingML colors, anchors,
+groups, VML static controls, gradients and rejection of external media links.
+All **83 tests**, strict Clippy, formatting and macOS release packaging pass.
+Saved chart point colors are round-tripped through JSON both directly and inside
+nested drawing groups, preserving numeric point indices and avoiding tagged-enum
+deserialization regressions when reopening exported analyses.
+
+## Local model inference — 2026-11-06
 
 | Case | Actual local inference outcome |
 | --- | --- |

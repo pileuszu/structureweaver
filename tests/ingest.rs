@@ -307,8 +307,7 @@ fn unsupported_visual_features_are_recorded_instead_of_silently_claimed() {
         .layout
         .unsupported_features;
     for feature in [
-        "조건부 서식",
-        "그림·차트·도형",
+        "누락되거나 외부에 연결된 그리기 레이어",
         "Excel 표의 자동 스타일",
         "셀 내부의 혼합 글꼴",
     ] {
@@ -317,6 +316,17 @@ fn unsupported_visual_features_are_recorded_instead_of_silently_claimed() {
             "missing {feature}"
         );
     }
+    assert_eq!(
+        doc.pages[0]
+            .grid
+            .as_ref()
+            .unwrap()
+            .layout
+            .conditional_formats
+            .len(),
+        1
+    );
+    assert!(!unsupported.iter().any(|v| v == "조건부 서식"));
 }
 
 #[test]
@@ -364,6 +374,6 @@ fn drawing_extension_coordinates_are_not_worksheet_rows_columns_or_cells() {
         grid.layout
             .unsupported_features
             .iter()
-            .any(|feature| feature == "그림·차트·도형")
+            .any(|feature| feature == "시트 확장에 포함된 DrawingML 개체")
     );
 }

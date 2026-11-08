@@ -8,6 +8,9 @@
 | `ingest.rs` | `DocumentAdapter`, Excel OOXML metadata + calamine typed values, input/resource validation |
 | `xlsx_styles.rs` | Workbook style inheritance, font/alignment/border/pattern metadata, resolved theme/indexed colors |
 | `number_format.rs` | Presentation-only Excel number/date/time/currency formats; preserves analysis values |
+| `conditional.rs` / `conditional_icons.rs` | Stored conditional rules, bounded formula evaluation and priority-aware style overlays; native icon geometry |
+| `charts.rs` | Chart metadata, cached/internal range data and native chart geometry, including standalone chart sheets |
+| `drawings.rs` / `ooxml.rs` | Bounded OPC relationships, anchored shapes/groups/images/VML appearance, text and native drawing renderer |
 | `sheet_view.rs` | Read-only native worksheet canvas with source fonts, geometry, merges, frozen panes and viewport culling |
 | `render.rs` | Unicode text and cell-type overlay PNGs with global row/column labels |
 | `llama.rs` | Local-only blocking HTTP transport, model discovery, vision + JSON schema requests, bounded errors/timeouts |
@@ -53,6 +56,12 @@ New behavior: include hidden content, visit all populated tiles, reconcile whole
 `Cell.value` remains the typed source text for analysis. `raw_number` retains numeric OOXML values (including date serials); `display_value` and the stored number format are for presentation only. `Grid.layout` records dimensions, row/column defaults, hidden axes, gridlines, zoom and frozen panes. New style/layout fields use serde defaults so previously exported analyses remain readable; their original workbook must be reopened to recover styling that old exports did not store.
 
 The source canvas uses the document font family/weight from installed TTF/OTF/TTC faces, with an explicit fallback notice when unavailable. It draws only visible rows/columns and merged intersections. Analysis outlines are opt-in and do not recolor source cells. Unsupported visual constructs are detected and reported; the viewer is not a complete Excel rendering engine. See README for current limits.
+
+Conditional rules are stored separately in `Grid.layout.conditional_formats`. The viewer prepares per-cell appearance once per sheet, merges only explicitly set DXF properties in priority order, and stops lower-priority rules where required. These display cells never replace the analysis grid. Number-format caches are invalidated only for display overrides; original values/formulas/styles remain intact.
+
+`Grid.layout.drawings` stores anchored, ordered objects and embedded picture bytes. EMU coordinates are mapped through the same row/column geometry used by the cells; frozen panes clip each drawing in the corresponding viewport. Drawing extents extend the visible canvas without creating analysis records. After all sheets are ingested, chart ranges without caches resolve against local cells. Standalone chart sheets use a chart-only canvas and have no fabricated cell values. VML controls are inert drawings: macros, external media and linked workbooks are never executed or fetched.
+
+Visual parsing bounds XML depth/size, decoded images, objects and chart series/points. Conditional evaluation caps rule/total cells and reports any skipped range. Unsupported effects and formulas remain explicit diagnostics rather than guessed output. The portable analysis JSON includes these visuals with backward-compatible defaults for old exports.
 
 ## UI style reference
 

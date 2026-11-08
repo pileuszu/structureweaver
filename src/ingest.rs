@@ -56,6 +56,7 @@ struct SheetMeta {
     cols: u32,
     layout: SheetLayout,
     shared_string_ids: BTreeSet<u32>,
+    chart_sheet: bool,
 }
 
 #[derive(Clone)]
@@ -233,6 +234,7 @@ fn sheet_metadata(xml: &str, styles: &Styles, date1904: bool) -> Result<SheetMet
     let mut reader = NsReader::from_str(xml);
     let mut meta = SheetMeta::default();
     meta.layout.default_style = styles.default_style.clone();
+    meta.layout.normal_style = Some(styles.normal_style.clone());
     meta.layout.date1904 = date1904;
     let mut current_cell = None;
     let mut cell_type = String::new();
@@ -384,8 +386,11 @@ fn sheet_metadata(xml: &str, styles: &Styles, date1904: bool) -> Result<SheetMet
                     b"conditionalFormatting" => {
                         unsupported.insert("조건부 서식".to_owned());
                     }
-                    b"drawing" | b"legacyDrawing" | b"legacyDrawingHF" | b"picture" => {
-                        unsupported.insert("그림·차트·도형".to_owned());
+                    b"legacyDrawingHF" => {
+                        unsupported.insert("머리글·바닥글 그림".to_owned());
+                    }
+                    b"picture" => {
+                        unsupported.insert("시트 배경 그림".to_owned());
                     }
                     b"tableParts" => {
                         unsupported.insert("Excel 표의 자동 스타일".to_owned());
@@ -399,7 +404,7 @@ fn sheet_metadata(xml: &str, styles: &Styles, date1904: bool) -> Result<SheetMet
                 }
                 b"drawing" | b"sp" | b"graphicFrame" | b"pic" | b"twoCellAnchor"
                 | b"oneCellAnchor" | b"absoluteAnchor" => {
-                    unsupported.insert("그림·차트·도형".to_owned());
+                    unsupported.insert("시트 확장에 포함된 DrawingML 개체".to_owned());
                 }
                 _ => {}
             },
@@ -585,13 +590,42 @@ impl DocumentAdapter for ExcelAdapter {
             let part = relationships
                 .get(&sheet.relationship)
                 .with_context(|| format!("No worksheet relationship for {}", sheet.name))?;
-            // Chart sheets are not worksheets and have no cell grid; retain them explicitly.
+            if part.kind.ends_with("/chartsheet") {
+                let sheet_xml = xml_entry(&mut zip, &part.path)?;
+                let (drawings, warnings) =
+                    crate::drawings::read_sheet_drawings(&mut zip, &part.path, &sheet_xml, &theme)?;
+                let mut meta = SheetMeta {
+                    chart_sheet: true,
+                    ..Default::default()
+                };
+                meta.layout.default_style = style_data.default_style.clone();
+                meta.layout.normal_style = Some(style_data.normal_style.clone());
+                meta.layout.chart_sheet = true;
+                meta.layout.drawings = drawings;
+                meta.layout.unsupported_features = warnings;
+                meta.layout.show_grid_lines = false;
+                metadata.push(Some(meta));
+                continue;
+            }
+            // Unsupported non-cell sheet kinds remain visible in the inventory.
             if !part.kind.ends_with("/worksheet") {
                 metadata.push(None);
                 continue;
             }
-            let mut meta = sheet_metadata(&xml_entry(&mut zip, &part.path)?, &style_data, date1904)
+            let sheet_xml = xml_entry(&mut zip, &part.path)?;
+            let mut meta = sheet_metadata(&sheet_xml, &style_data, date1904)
                 .with_context(|| format!("Worksheet {}", sheet.name))?;
+            let (rules, rule_warnings) =
+                crate::conditional::parse(&sheet_xml, &style_data, &theme)?;
+            let (drawings, drawing_warnings) =
+                crate::drawings::read_sheet_drawings(&mut zip, &part.path, &sheet_xml, &theme)?;
+            meta.layout.conditional_formats = rules;
+            meta.layout.drawings = drawings;
+            meta.layout
+                .unsupported_features
+                .retain(|s| s != "조건부 서식" && s != "그림·차트·도형");
+            meta.layout.unsupported_features.extend(rule_warnings);
+            meta.layout.unsupported_features.extend(drawing_warnings);
             if !meta.shared_string_ids.is_disjoint(&rich_strings)
                 && !meta
                     .layout
@@ -623,6 +657,20 @@ impl DocumentAdapter for ExcelAdapter {
                 });
                 continue;
             };
+            if meta.chart_sheet {
+                pages.push(Page {
+                    id: page_id,
+                    name: sheet.name.clone(),
+                    kind: PageKind::Sheet,
+                    hidden: sheet.hidden,
+                    grid: Some(Grid {
+                        layout: meta.layout,
+                        ..Default::default()
+                    }),
+                    blocks: vec![],
+                });
+                continue;
+            }
             let values = workbook
                 .worksheet_range(&sheet.name)
                 .with_context(|| format!("Read values in {}", sheet.name))?;
@@ -695,7 +743,7 @@ impl DocumentAdapter for ExcelAdapter {
                 blocks: vec![],
             });
         }
-        Ok(Document {
+        let mut document = Document {
             id,
             name: path
                 .file_name()
@@ -709,6 +757,51 @@ impl DocumentAdapter for ExcelAdapter {
                 .to_ascii_lowercase(),
             pages,
             warnings,
-        })
+        };
+        // Resolve chart range references only after every sheet's cached cells are read.
+        // Taking drawings out avoids duplicating the potentially large workbook/media.
+        for index in 0..document.pages.len() {
+            let Some(grid) = document.pages[index].grid.as_mut() else {
+                continue;
+            };
+            let mut drawings = std::mem::take(&mut grid.layout.drawings);
+            for drawing in &mut drawings {
+                hydrate_drawing(drawing, &document);
+            }
+            let layout = &mut document.pages[index].grid.as_mut().unwrap().layout;
+            for drawing in &drawings {
+                drawing_warnings(drawing, &mut layout.unsupported_features);
+            }
+            layout.unsupported_features.sort();
+            layout.unsupported_features.dedup();
+            layout.drawings = drawings;
+        }
+        Ok(document)
+    }
+}
+
+fn drawing_warnings(drawing: &crate::drawings::DrawingObject, warnings: &mut Vec<String>) {
+    match &drawing.content {
+        crate::drawings::DrawingContent::Chart(chart) => {
+            warnings.extend(chart.warnings.iter().cloned())
+        }
+        crate::drawings::DrawingContent::Group { children } => {
+            for child in children {
+                drawing_warnings(&child.object, warnings);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn hydrate_drawing(drawing: &mut crate::drawings::DrawingObject, document: &Document) {
+    match &mut drawing.content {
+        crate::drawings::DrawingContent::Chart(chart) => crate::charts::hydrate(chart, document),
+        crate::drawings::DrawingContent::Group { children } => {
+            for child in children {
+                hydrate_drawing(&mut child.object, document);
+            }
+        }
+        _ => {}
     }
 }

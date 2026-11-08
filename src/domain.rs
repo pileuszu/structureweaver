@@ -131,12 +131,17 @@ pub struct SheetLayout {
     pub row_styles: BTreeMap<u32, CellStyle>,
     pub column_styles: BTreeMap<u32, CellStyle>,
     pub default_style: CellStyle,
+    /// Column character widths use the Normal named style, not cellXfs[0].
+    pub normal_style: Option<CellStyle>,
     pub show_grid_lines: bool,
     pub zoom_scale: f32,
     pub freeze_rows: u32,
     pub freeze_cols: u32,
     pub date1904: bool,
     pub unsupported_features: Vec<String>,
+    pub conditional_formats: Vec<crate::conditional::ConditionalRule>,
+    pub drawings: Vec<crate::drawings::DrawingObject>,
+    pub chart_sheet: bool,
 }
 impl Default for SheetLayout {
     fn default() -> Self {
@@ -148,12 +153,16 @@ impl Default for SheetLayout {
             row_styles: BTreeMap::new(),
             column_styles: BTreeMap::new(),
             default_style: CellStyle::default(),
+            normal_style: None,
             show_grid_lines: true,
             zoom_scale: 100.0,
             freeze_rows: 0,
             freeze_cols: 0,
             date1904: false,
             unsupported_features: vec![],
+            conditional_formats: vec![],
+            drawings: vec![],
+            chart_sheet: false,
         }
     }
 }
