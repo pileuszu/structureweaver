@@ -22,6 +22,8 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Open a workbook in the native app without starting model inference.
+    Open { input: PathBuf },
     /// List models served by the local Llama app.
     Models {
         #[arg(long, default_value = "http://127.0.0.1:9931/v1")]
@@ -49,6 +51,7 @@ enum Command {
 fn main() -> Result<()> {
     match Args::parse().command {
         None => ui::run(),
+        Some(Command::Open { input }) => ui::run_with_document(input),
         Some(Command::Models { base_url }) => {
             for model in LlamaClient::new(LlamaConfig {
                 base_url,

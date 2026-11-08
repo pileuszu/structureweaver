@@ -11,6 +11,10 @@
 | `conditional.rs` / `conditional_icons.rs` | Stored conditional rules, bounded formula evaluation and priority-aware style overlays; native icon geometry |
 | `charts.rs` | Chart metadata, cached/internal range data and native chart geometry, including standalone chart sheets |
 | `drawings.rs` / `ooxml.rs` | Bounded OPC relationships, anchored shapes/groups/images/VML appearance, text and native drawing renderer |
+| `chart_3d.rs` | Depth-sorted 3D chart meshes, camera projection and bounded scene geometry |
+| `drawing_effects.rs` | Bounded alpha-mask compositing for shadows, glow, soft edges and reflection; projected shape depth/bevel |
+| `excel_render.rs` / `.applescript` | Experimental installed-Excel object export through a static, macro-free temporary snapshot; disabled in the default UI |
+| `excel_preview.rs` | In-memory image textures, drawing-order replacement, physical PNG sizing and opaque-fill registration |
 | `sheet_view.rs` | Read-only native worksheet canvas with source fonts, geometry, merges, frozen panes and viewport culling |
 | `render.rs` | Unicode text and cell-type overlay PNGs with global row/column labels |
 | `llama.rs` | Local-only blocking HTTP transport, model discovery, vision + JSON schema requests, bounded errors/timeouts |

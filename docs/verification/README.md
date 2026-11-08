@@ -52,6 +52,35 @@ Saved chart point colors are round-tripped through JSON both directly and inside
 nested drawing groups, preserving numeric point indices and avoiding tagged-enum
 deserialization regressions when reopening exported analyses.
 
+## 3D charts, special effects and layout — 2026-11-08
+
+`fixtures/fidelity.xlsx` contains six native 3D chart families, explicit camera
+coordinates, automatic and saved title/legend/plot layouts, and eight DrawingML
+effect examples. The synthetic file opens in Excel without a repair dialog.
+Its generator explicitly writes view3D for pie/line/area because openpyxl otherwise
+omits it. Source values and presentation metadata survive JSON round-tripping.
+
+Native UI inspection confirms 3D columns/pies and effect rendering. Native shadows,
+glow, soft edges, reflection and shape depth display in the source canvas. Saved
+layout and measured automatic margins have automated coverage, as do finite
+projection under extreme camera values, negative pie labels, effect bounds beyond
+the anchor, nested groups and malformed saved effect parameters. **105 tests**,
+strict Clippy and formatting checks pass. Pure native Office lighting, typography
+and layout remain approximate; reflected/projected shape text and combined 3D/2D
+effects are specifically disclosed in the source view.
+
+The installed-Excel bridge is **experimental, disabled by default, and not an
+end-to-end verified fidelity solution**. CUA-driven application tests exposed
+timeouts reading Excel's active workbook and opening a temporary workbook
+(`-1712`), including after restarting Excel with only synthetic workbooks open.
+The bridge now avoids all global security/events/calculation APIs and generates a
+static XLSX with cached cell values, no VBA/ActiveX/OLE/external connections or
+worksheet formulas. Tests verify source immutability and package sanitation.
+Manual Excel Save as Picture succeeds for the synthetic shadow shape; the PNG
+includes asymmetric padding and 150-dpi metadata. The experimental viewer keeps
+physical aspect/size and can register flat opaque fills, but arbitrary 3D/group
+image origins remain unverified. No claim of pixel identity is made.
+
 ## Local model inference — 2026-11-06
 
 | Case | Actual local inference outcome |

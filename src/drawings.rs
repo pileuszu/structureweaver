@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::File};
 use zip::ZipArchive;
 
+#[path = "drawing_effects.rs"]
+mod effects;
+pub use effects::{DrawingEffects, Glow, Reflection, Scene3D, Shadow};
+
 const MAX_OBJECTS: usize = 2048;
 const MAX_MEDIA: u64 = 16 * 1024 * 1024;
 const MAX_TOTAL_MEDIA: usize = 64 * 1024 * 1024;
@@ -56,6 +60,43 @@ pub struct DrawingObject {
     pub flip_v: bool,
     pub content: DrawingContent,
 }
+impl DrawingObject {
+    /// Additional display-space extent occupied by shadows, reflections and extrusion.
+    pub fn visual_outset(&self, size: Vec2, zoom: f32) -> f32 {
+        if !size.is_finite() || !zoom.is_finite() || zoom <= 0.0 {
+            return 0.0;
+        }
+        let size = size.abs().min(Vec2::splat(1e8));
+        let zoom = zoom.min(256.0);
+        match &self.content {
+            DrawingContent::Shape(shape) => shape.effects.outset(size, zoom * POINT_SCALE),
+            DrawingContent::Picture(picture) => picture.effects.outset(size, zoom * POINT_SCALE),
+            DrawingContent::Group { children } => children
+                .iter()
+                .map(|child| {
+                    child.object.visual_outset(
+                        Vec2::new(
+                            size.x
+                                * if child.rect[2].is_finite() {
+                                    child.rect[2].clamp(-1e8, 1e8)
+                                } else {
+                                    0.0
+                                },
+                            size.y
+                                * if child.rect[3].is_finite() {
+                                    child.rect[3].clamp(-1e8, 1e8)
+                                } else {
+                                    0.0
+                                },
+                        ),
+                        zoom,
+                    )
+                })
+                .fold(0.0, f32::max),
+            _ => 0.0,
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DrawingContent {
@@ -72,6 +113,8 @@ pub struct GroupChild {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PictureData {
+    #[serde(default)]
+    pub effects: Box<DrawingEffects>,
     pub source: String,
     pub base64: String,
     /// Fraction of source image cropped from left/top/right/bottom.
@@ -79,6 +122,8 @@ pub struct PictureData {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ShapeData {
+    #[serde(default)]
+    pub effects: DrawingEffects,
     pub geometry: String,
     pub fill: Option<String>,
     #[serde(default)]
@@ -438,7 +483,16 @@ fn custom_paths(geometry: &Node) -> Vec<ShapePath> {
         })
         .collect()
 }
+#[cfg(test)]
 fn shape(node: &Node, theme: &Theme, warnings: &mut Vec<String>) -> ShapeData {
+    shape_with_effects(node, theme, warnings, None)
+}
+fn shape_with_effects(
+    node: &Node,
+    theme: &Theme,
+    warnings: &mut Vec<String>,
+    inherited: Option<&Node>,
+) -> ShapeData {
     let empty = Node::default();
     let sp = node.child("spPr").unwrap_or(&empty);
     let style = node.child("style");
@@ -499,12 +553,25 @@ fn shape(node: &Node, theme: &Theme, warnings: &mut Vec<String>) -> ShapeData {
             rotate_with_shape: g.attr("rotWithShape") != Some("0"),
         })
     });
-    if sp
-        .child("effectLst")
-        .is_some_and(|n| !n.children.is_empty())
-        || sp.child("scene3d").is_some()
+    let effects = effects::parse(sp, inherited, theme, warnings);
+    if effects.has_raster_effects() && fill.is_none() && node.child("txBody").is_some() {
+        warnings.push("채우기 없는 텍스트 상자의 글자 효과".into());
+    }
+    if effects.has_raster_effects() && paths.iter().map(|p| p.points.len()).sum::<usize>() > 512 {
+        warnings.push("복잡한 사용자 지정 도형 효과의 해상도 제한".into());
+    }
+    if effects.has_raster_effects()
+        && ln.is_some_and(|n| n.child("headEnd").is_some() || n.child("tailEnd").is_some())
     {
-        warnings.push("도형 그림자·3D 효과".into())
+        warnings.push("연결선 화살표 끝의 특수 효과".into());
+    }
+    if effects.scene.is_some() && effects.has_raster_effects() {
+        warnings.push("3D 도형에 함께 적용된 2D 효과".into());
+    }
+    if node.child("txBody").is_some()
+        && (effects.reflection.is_some() || effects.soft_edge > 0.0 || effects.scene.is_some())
+    {
+        warnings.push("도형 효과의 텍스트 반사·부드러운 가장자리·3D 투영은 근사 표시됩니다".into());
     }
     if sp.child("custGeom").is_some() && paths.is_empty() {
         warnings.push("수식 또는 원호가 포함된 사용자 지정 도형".into())
@@ -514,6 +581,7 @@ fn shape(node: &Node, theme: &Theme, warnings: &mut Vec<String>) -> ShapeData {
     }
     let body = node.child("txBody").and_then(|n| n.child("bodyPr"));
     ShapeData {
+        effects,
         geometry: geom.into(),
         fill,
         gradient,
@@ -596,8 +664,33 @@ struct ReadState<'a> {
     warnings: Vec<String>,
     objects: usize,
     media_bytes: usize,
+    effect_styles: Vec<Node>,
 }
 impl ReadState<'_> {
+    fn inherited_effects(&self, node: &Node) -> Option<Node> {
+        let reference = node.child("style")?.child("effectRef")?;
+        let index = reference
+            .attr("idx")?
+            .parse::<usize>()
+            .ok()?
+            .checked_sub(1)?;
+        let mut effect = self.effect_styles.get(index)?.clone();
+        if let Some(replacement) = reference.children.first() {
+            fn replace(node: &mut Node, replacement: &Node) {
+                if node.name == "schemeClr" && node.attr("val") == Some("phClr") {
+                    let transforms = std::mem::take(&mut node.children);
+                    *node = replacement.clone();
+                    node.children.extend(transforms);
+                } else {
+                    for child in &mut node.children {
+                        replace(child, replacement);
+                    }
+                }
+            }
+            replace(&mut effect, replacement);
+        }
+        Some(effect)
+    }
     fn object(
         &mut self,
         node: &Node,
@@ -634,7 +727,13 @@ impl ReadState<'_> {
         }
         let content = match node.name.as_str() {
             "sp" | "cxnSp" => {
-                DrawingContent::Shape(Box::new(shape(node, self.theme, &mut self.warnings)))
+                let inherited = self.inherited_effects(node);
+                DrawingContent::Shape(Box::new(shape_with_effects(
+                    node,
+                    self.theme,
+                    &mut self.warnings,
+                    inherited.as_ref(),
+                )))
             }
             "pic" => {
                 let id = node
@@ -671,7 +770,19 @@ impl ReadState<'_> {
                     "Drawing image exceeds 16 million pixels"
                 );
                 let crop = node.child("blipFill").and_then(|n| n.child("srcRect"));
+                let inherited = self.inherited_effects(node);
+                let empty = Node::default();
+                let effects = effects::parse(
+                    props.unwrap_or(&empty),
+                    inherited.as_ref(),
+                    self.theme,
+                    &mut self.warnings,
+                );
+                if effects.scene.is_some() {
+                    self.warnings.push("그림의 3D 투영".into());
+                }
                 DrawingContent::Picture(PictureData {
+                    effects: Box::new(effects),
                     source: rel.target.clone(),
                     base64: base64::engine::general_purpose::STANDARD.encode(bytes),
                     crop: ["l", "t", "r", "b"].map(|k| (num(crop, k, 0.0) / 100000.0) as f32),
@@ -761,7 +872,14 @@ pub(crate) fn read_sheet_drawings(
 ) -> Result<(Vec<DrawingObject>, Vec<String>)> {
     let sheet = ooxml::parse(sheet_xml)?;
     let sheet_rels = ooxml::read_relationships(zip, sheet_part)?;
+    let effect_styles = ooxml::part_xml(zip, "xl/theme/theme1.xml")
+        .ok()
+        .and_then(|xml| ooxml::parse(&xml).ok())
+        .and_then(|root| root.descendant("effectStyleLst").cloned())
+        .map(|list| list.children)
+        .unwrap_or_default();
     let mut state = ReadState {
+        effect_styles,
         zip,
         theme,
         warnings: vec![],
@@ -1045,6 +1163,7 @@ fn read_vml(xml: &str, warnings: &mut Vec<String>) -> Result<Vec<DrawingObject>>
             flip_h: false,
             flip_v: false,
             content: DrawingContent::Shape(Box::new(ShapeData {
+                effects: DrawingEffects::default(),
                 geometry: geometry.into(),
                 fill: if node.attr("filled") == Some("f") {
                     None
@@ -1557,6 +1676,7 @@ fn arrow(p: &egui::Painter, tip: Pos2, previous: Pos2, kind: &str, stroke: Strok
 #[derive(Default)]
 pub struct DrawingRenderer {
     textures: HashMap<String, Option<egui::TextureHandle>>,
+    effects: effects::EffectRenderer,
 }
 #[derive(Clone, Copy)]
 struct Pose {
@@ -1566,7 +1686,8 @@ struct Pose {
 }
 impl DrawingRenderer {
     pub fn clear(&mut self) {
-        self.textures.clear()
+        self.textures.clear();
+        self.effects.clear();
     }
     pub fn paint(&mut self, p: &egui::Painter, rect: Rect, object: &DrawingObject, zoom: f32) {
         self.paint_with_fonts(p, rect, object, zoom, &|_| egui::FontFamily::Proportional)
@@ -1604,10 +1725,12 @@ impl DrawingRenderer {
         if !rect.is_finite() || rect.width().abs() > 1e8 || rect.height().abs() > 1e8 {
             return;
         }
+        // Effects may extend beyond the unrotated anchor (especially reflections).
+        let effect_outset = object.visual_outset(rect.size(), zoom);
         // Rotated objects can extend beyond their unrotated rectangle.
         if !p
             .clip_rect()
-            .intersects(rect.expand(rect.size().length() * 0.5))
+            .intersects(rect.expand(rect.size().length() * 0.5 + effect_outset))
         {
             return;
         }
@@ -1654,33 +1777,84 @@ impl DrawingRenderer {
                 } else {
                     shape.paths.clone()
                 };
-                for path in paths {
-                    let points: Vec<_> = path.points.iter().copied().map(point).collect();
-                    if path.fill && path.closed {
-                        if let Some(gradient) = &shape.gradient {
-                            filled_gradient(p, &points, &path.points, gradient, rect, pose);
-                        } else {
-                            filled_path(p, &points, fill);
+                let rasterized = shape.effects.scene.is_none()
+                    && self.effects.shape(p, rect, shape, &paths, pose, z);
+                if rasterized {
+                    for path in &paths {
+                        if !path.closed && path.points.len() > 1 {
+                            let points: Vec<_> = path.points.iter().copied().map(point).collect();
+                            arrow(p, points[0], points[1], &shape.head, stroke, z);
+                            arrow(
+                                p,
+                                points[points.len() - 1],
+                                points[points.len() - 2],
+                                &shape.tail,
+                                stroke,
+                                z,
+                            );
                         }
                     }
-                    if path.stroke {
-                        stroke_path(p, &points, path.closed, stroke, &shape.dash)
-                    }
-                    if !path.closed && points.len() > 1 {
-                        arrow(p, points[0], points[1], &shape.head, stroke, z);
-                        arrow(
-                            p,
-                            points[points.len() - 1],
-                            points[points.len() - 2],
-                            &shape.tail,
-                            stroke,
-                            z,
-                        )
+                } else {
+                    for path in paths {
+                        let local_points: Vec<_> = path
+                            .points
+                            .iter()
+                            .map(|xy| {
+                                rect.min + Vec2::new(xy[0] * rect.width(), xy[1] * rect.height())
+                            })
+                            .collect();
+                        let points: Vec<_> = local_points
+                            .iter()
+                            .map(|&q| {
+                                let q = shape
+                                    .effects
+                                    .scene
+                                    .as_ref()
+                                    .map_or(q, |scene| effects::project(q, rect, 0.0, scene));
+                                transform(q, rect.center(), pose.rotation, pose.flip_h, pose.flip_v)
+                            })
+                            .collect();
+                        if path.fill
+                            && path.closed
+                            && let Some(scene) = &shape.effects.scene
+                        {
+                            effects::paint_sides(p, &local_points, rect, scene, fill, pose, z);
+                        }
+                        if path.fill && path.closed {
+                            if let Some(gradient) = &shape.gradient {
+                                filled_gradient(p, &points, &path.points, gradient, rect, pose);
+                            } else {
+                                filled_path(p, &points, fill);
+                            }
+                        }
+                        if path.fill
+                            && path.closed
+                            && let Some(scene) = &shape.effects.scene
+                        {
+                            effects::paint_bevel(p, &local_points, rect, scene, fill, pose, z);
+                        }
+                        if path.stroke {
+                            stroke_path(p, &points, path.closed, stroke, &shape.dash)
+                        }
+                        if !path.closed && points.len() > 1 {
+                            arrow(p, points[0], points[1], &shape.head, stroke, z);
+                            arrow(
+                                p,
+                                points[points.len() - 1],
+                                points[points.len() - 2],
+                                &shape.tail,
+                                stroke,
+                                z,
+                            )
+                        }
                     }
                 }
                 self.text(p, rect, pose.rotation, shape, z, resolve_font);
             }
             DrawingContent::Picture(pic) => {
+                if self.effects.picture(p, rect, pic, pose, z) {
+                    return;
+                }
                 // The cache is reset on workbook/sheet changes; source part is unique inside a workbook.
                 let texture = self.textures.entry(pic.source.clone()).or_insert_with(|| {
                     let bytes = base64::engine::general_purpose::STANDARD
@@ -1868,6 +2042,105 @@ impl DrawingRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn object_with_effects() -> DrawingObject {
+        let node = ooxml::parse(r#"<sp><spPr><prstGeom prst="rect"/><solidFill><srgbClr val="224488"/></solidFill><effectLst><outerShdw blurRad="38100" dist="50800" dir="5400000"><srgbClr val="000000"/></outerShdw><reflection sy="-100000" dir="5400000" dist="25400"/></effectLst></spPr></sp>"#).unwrap();
+        DrawingObject {
+            anchor: DrawingAnchor::Absolute {
+                x_emu: 0.0,
+                y_emu: 0.0,
+                width_emu: 1270000.0,
+                height_emu: 508000.0,
+            },
+            name: "Outset regression".into(),
+            rotation: 0.0,
+            flip_h: false,
+            flip_v: false,
+            content: DrawingContent::Shape(Box::new(shape(&node, &Theme::default(), &mut vec![]))),
+        }
+    }
+    #[test]
+    fn reflection_and_shadow_outsets_keep_offscreen_anchor_visible() {
+        let object = object_with_effects();
+        let size = Vec2::new(100.0, 40.0);
+        let outset = object.visual_outset(size, 1.0);
+        assert!(outset >= 40.0 + (13.0 + 2.0) * POINT_SCALE);
+        let rect = Rect::from_min_size(Pos2::ZERO, size);
+        let visible_reflection = Rect::from_min_size(Pos2::new(20.0, 65.0), Vec2::new(20.0, 8.0));
+        assert!(!rect.intersects(visible_reflection));
+        assert!(rect.expand(outset).intersects(visible_reflection));
+        assert!(object.visual_outset(size * 2.0, 2.0) > outset * 1.8);
+    }
+    #[test]
+    fn grouped_effect_outsets_use_each_child_display_size() {
+        let child = object_with_effects();
+        let expected = child.visual_outset(Vec2::new(100.0, 40.0), 1.0);
+        let mut group = child.clone();
+        group.content = DrawingContent::Group {
+            children: vec![GroupChild {
+                rect: [0.1, 0.2, 0.5, 0.25],
+                object: child,
+            }],
+        };
+        assert_eq!(group.visual_outset(Vec2::new(200.0, 160.0), 1.0), expected);
+        let nested = DrawingObject {
+            content: DrawingContent::Group {
+                children: vec![GroupChild {
+                    rect: [0.0, 0.0, 1.0, 1.0],
+                    object: group.clone(),
+                }],
+            },
+            ..group
+        };
+        assert_eq!(nested.visual_outset(Vec2::new(200.0, 160.0), 1.0), expected);
+    }
+    #[test]
+    fn restored_extreme_effect_values_cannot_overflow_canvas_or_culling() {
+        let object = object_with_effects();
+        let mut json = serde_json::to_value(&object).unwrap();
+        let effects = &mut json["content"]["effects"];
+        effects["reflection"]["scale"] = serde_json::json!([1e38, -1e38]);
+        effects["reflection"]["distance"] = serde_json::json!(1e38);
+        effects["outer_shadow"]["blur"] = serde_json::json!(1e38);
+        effects["outer_shadow"]["skew"] = serde_json::json!([1e38, -1e38]);
+        let restored: DrawingObject = serde_json::from_value(json).unwrap();
+        let size = Vec2::new(100.0, 40.0);
+        for zoom in [0.0, -1.0, 1.0, f32::MAX, f32::INFINITY, f32::NAN] {
+            let outset = restored.visual_outset(size, zoom);
+            assert!(outset.is_finite() && (0.0..=1e8).contains(&outset));
+            assert!(
+                Rect::from_min_size(Pos2::ZERO, size)
+                    .expand(outset)
+                    .is_finite()
+            );
+        }
+        assert_eq!(restored.visual_outset(Vec2::new(f32::NAN, 40.0), 1.0), 0.0);
+        let mut group = restored.clone();
+        group.content = DrawingContent::Group {
+            children: vec![GroupChild {
+                rect: [0.0, 0.0, f32::MAX, f32::MAX],
+                object: restored,
+            }],
+        };
+        assert!(group.visual_outset(Vec2::splat(f32::MAX), 1.0).is_finite());
+    }
+    #[test]
+    fn inherited_effects_resolve_placeholder_color_and_keep_alpha() {
+        let file = zip::ZipWriter::new(tempfile::tempfile().unwrap())
+            .finish()
+            .unwrap();
+        let mut zip = ZipArchive::new(file).unwrap();
+        let theme = Theme::default();
+        let state = ReadState {
+            zip: &mut zip, theme: &theme, warnings: vec![], objects: 0, media_bytes: 0,
+            effect_styles: vec![ooxml::parse(r#"<effectStyle><effectLst><outerShdw dist="25400"><schemeClr val="phClr"><alpha val="50000"/></schemeClr></outerShdw></effectLst></effectStyle>"#).unwrap()],
+        };
+        let node = ooxml::parse(r#"<sp><spPr><prstGeom prst="rect"/></spPr><style><effectRef idx="1"><srgbClr val="123456"/></effectRef></style></sp>"#).unwrap();
+        let inherited = state.inherited_effects(&node).unwrap();
+        let shape = shape_with_effects(&node, &theme, &mut vec![], Some(&inherited));
+        let shadow = shape.effects.outer_shadow.unwrap();
+        assert_eq!(shadow.color, "80123456");
+        assert_eq!(shadow.distance, 2.0);
+    }
     #[test]
     fn anchors_are_one_based_and_keep_emu_offsets() {
         let n=ooxml::parse(r#"<twoCellAnchor><from><col>2</col><colOff>12700</colOff><row>4</row><rowOff>25400</rowOff></from><to><col>7</col><colOff>0</colOff><row>12</row><rowOff>0</rowOff></to></twoCellAnchor>"#).unwrap();
@@ -1940,6 +2213,7 @@ mod tests {
             warnings: vec![],
             objects: 0,
             media_bytes: 0,
+            effect_styles: vec![],
         };
         let mut rels = HashMap::new();
         rels.insert(
@@ -1999,6 +2273,7 @@ mod tests {
             warnings: vec![],
             objects: 0,
             media_bytes: 0,
+            effect_styles: vec![],
         };
         let node=ooxml::parse(r#"<grpSp><grpSpPr><xfrm rot="5400000"><off x="0" y="0"/><ext cx="1000" cy="500"/><chOff x="100" y="200"/><chExt cx="2000" cy="1000"/></xfrm></grpSpPr><sp><spPr><xfrm><off x="600" y="450"/><ext cx="500" cy="500"/></xfrm><prstGeom prst="ellipse"/><solidFill><srgbClr val="00FF00"/></solidFill></spPr></sp></grpSp>"#).unwrap();
         let object = state

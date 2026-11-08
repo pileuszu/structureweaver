@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 description = "Local document structure analysis and ERD design with Rust and Llama"
 
+[features]
+# Requires an Excel build whose scripting object model responds to Apple Events.
+# Not enabled in the release until end-to-end Office rendering is verified.
+excel-render-experimental = []
+
 [dependencies]
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

@@ -10,6 +10,9 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Shape, Stroke, Str
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
+#[path = "chart_3d.rs"]
+mod three_d;
+
 const MAX_POINTS: usize = 20_000;
 const FALLBACK_COLORS: [&str; 6] = ["4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47"];
 
@@ -67,6 +70,9 @@ pub struct ChartSeries {
     #[serde(deserialize_with = "deserialize_point_colors")]
     pub point_colors: BTreeMap<usize, String>,
     pub labels: DataLabels,
+    pub smooth: bool,
+    pub shape: Option<String>,
+    pub explosion: f32,
 }
 // Internally tagged DrawingContent buffers JSON keys as strings. Deserialize
 // those keys explicitly so saved charts work both directly and inside groups.
@@ -97,6 +103,10 @@ pub struct ChartGroup {
     pub first_slice_angle: f32,
     pub vary_colors: bool,
     pub scatter_style: String,
+    pub three_dimensional: bool,
+    pub gap_depth: f32,
+    pub shape: String,
+    pub wireframe: bool,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -113,6 +123,63 @@ pub struct ChartAxis {
     pub number_format: String,
     pub major_gridlines: bool,
     pub hidden: bool,
+}
+/// Office stores layout coordinates as fractions of the complete chart rectangle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChartLayout {
+    pub target: String,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub x_mode: String,
+    pub y_mode: String,
+    pub width_mode: String,
+    pub height_mode: String,
+}
+impl Default for ChartLayout {
+    fn default() -> Self {
+        Self {
+            target: "outer".into(),
+            x: None,
+            y: None,
+            width: None,
+            height: None,
+            x_mode: "factor".into(),
+            y_mode: "factor".into(),
+            width_mode: "factor".into(),
+            height_mode: "factor".into(),
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChartView3d {
+    pub rotation_x: f32,
+    pub rotation_y: f32,
+    pub height_percent: f32,
+    pub depth_percent: f32,
+    pub right_angle_axes: bool,
+    pub perspective: f32,
+    pub floor_color: Option<String>,
+    pub side_wall_color: Option<String>,
+    pub back_wall_color: Option<String>,
+}
+impl Default for ChartView3d {
+    fn default() -> Self {
+        Self {
+            rotation_x: 15.0,
+            rotation_y: 20.0,
+            height_percent: 100.0,
+            depth_percent: 100.0,
+            right_angle_axes: true,
+            perspective: 30.0,
+            floor_color: None,
+            side_wall_color: None,
+            back_wall_color: None,
+        }
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -134,6 +201,12 @@ pub struct Chart {
     pub blanks: String,
     pub visible_only: bool,
     pub warnings: Vec<String>,
+    pub view_3d: ChartView3d,
+    pub plot_layout: Option<ChartLayout>,
+    pub title_layout: Option<ChartLayout>,
+    pub legend_layout: Option<ChartLayout>,
+    pub title_overlay: bool,
+    pub legend_overlay: bool,
 }
 impl Default for Chart {
     fn default() -> Self {
@@ -154,6 +227,12 @@ impl Default for Chart {
             blanks: "gap".into(),
             visible_only: true,
             warnings: vec![],
+            view_3d: ChartView3d::default(),
+            plot_layout: None,
+            title_layout: None,
+            legend_layout: None,
+            title_overlay: false,
+            legend_overlay: false,
         }
     }
 }
@@ -337,6 +416,21 @@ fn labels(n: Option<&Node>) -> DataLabels {
     .unwrap_or_default()
 }
 
+fn manual_layout(node: Option<&Node>) -> Option<ChartLayout> {
+    let n = node?.child("layout")?.child("manualLayout")?;
+    Some(ChartLayout {
+        target: val(n, "layoutTarget").unwrap_or("outer").into(),
+        x: num(n, "x").map(|v| v as f32),
+        y: num(n, "y").map(|v| v as f32),
+        width: num(n, "w").map(|v| v as f32),
+        height: num(n, "h").map(|v| v as f32),
+        x_mode: val(n, "xMode").unwrap_or("factor").into(),
+        y_mode: val(n, "yMode").unwrap_or("factor").into(),
+        width_mode: val(n, "wMode").unwrap_or("factor").into(),
+        height_mode: val(n, "hMode").unwrap_or("factor").into(),
+    })
+}
+
 pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
     let root = parse(xml)?;
     let c = root
@@ -362,6 +456,11 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
             .collect(),
         blanks: val(c, "dispBlanksAs").unwrap_or("gap").into(),
         visible_only: !matches!(val(c, "plotVisOnly"), Some("0" | "false")),
+        plot_layout: manual_layout(Some(plot)),
+        title_layout: manual_layout(c.child("title")),
+        legend_layout: manual_layout(c.child("legend")),
+        title_overlay: c.child("title").is_some_and(|n| enabled(n, "overlay")),
+        legend_overlay: c.child("legend").is_some_and(|n| enabled(n, "overlay")),
         ..Default::default()
     };
     chart.style_id = num(&root, "style").map(|v| v as u32);
@@ -378,13 +477,25 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
             .warnings
             .push("차트 자동 스타일의 일부 장식은 기본 모양으로 표시합니다".into());
     }
-    let mut manual_layouts = vec![];
-    descendants(c, "manualLayout", &mut manual_layouts);
-    if !manual_layouts.is_empty() {
-        chart
-            .warnings
-            .push("차트 내부 수동 배치는 자동 배치로 표시합니다".into());
+    if let Some(view) = c.child("view3D") {
+        chart.view_3d.rotation_x = num(view, "rotX").unwrap_or(15.0).clamp(-90.0, 90.0) as f32;
+        chart.view_3d.rotation_y = num(view, "rotY").unwrap_or(20.0).rem_euclid(360.0) as f32;
+        chart.view_3d.height_percent =
+            num(view, "hPercent").unwrap_or(100.0).clamp(5.0, 500.0) as f32;
+        chart.view_3d.depth_percent = num(view, "depthPercent")
+            .unwrap_or(100.0)
+            .clamp(20.0, 2000.0) as f32;
+        chart.view_3d.right_angle_axes = !matches!(val(view, "rAngAx"), Some("0" | "false"));
+        chart.view_3d.perspective =
+            num(view, "perspective").unwrap_or(30.0).clamp(0.0, 240.0) as f32;
     }
+    chart.view_3d.floor_color = c.child("floor").and_then(|n| fill(n.child("spPr"), theme));
+    chart.view_3d.side_wall_color = c
+        .child("sideWall")
+        .and_then(|n| fill(n.child("spPr"), theme));
+    chart.view_3d.back_wall_color = c
+        .child("backWall")
+        .and_then(|n| fill(n.child("spPr"), theme));
     if let Some(title) = c.child("title") {
         let mut properties = vec![];
         descendants(title, "rPr", &mut properties);
@@ -432,10 +543,11 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
             continue;
         }
         let kind = match n.name.as_str() {
-            "barChart" => "bar",
-            "lineChart" => "line",
-            "areaChart" => "area",
-            "pieChart" => "pie",
+            "barChart" | "bar3DChart" => "bar",
+            "lineChart" | "line3DChart" => "line",
+            "areaChart" | "area3DChart" => "area",
+            "pieChart" | "pie3DChart" => "pie",
+            "surface3DChart" => "surface",
             "doughnutChart" => "doughnut",
             "scatterChart" => "scatter",
             "bubbleChart" => "bubble",
@@ -449,6 +561,10 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
         };
         let mut group = ChartGroup {
             kind: kind.into(),
+            three_dimensional: n.name.contains("3D"),
+            gap_depth: num(n, "gapDepth").unwrap_or(150.0).clamp(0.0, 500.0) as f32,
+            shape: val(n, "shape").unwrap_or("box").into(),
+            wireframe: enabled(n, "wireframe"),
             horizontal: val(n, "barDir") == Some("bar"),
             grouping: val(n, "grouping").unwrap_or("standard").into(),
             axis_ids: n
@@ -499,6 +615,9 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
                     .into(),
                 marker_size: marker.and_then(|n| num(n, "size")).unwrap_or(5.0) as f32,
                 labels: labels(s.child("dLbls").or_else(|| n.child("dLbls"))),
+                smooth: enabled(s, "smooth") || group.scatter_style.starts_with("smooth"),
+                shape: val(s, "shape").map(str::to_owned),
+                explosion: num(s, "explosion").unwrap_or(0.0).clamp(0.0, 400.0) as f32,
                 ..Default::default()
             };
             if let Some(tx) = tx {
@@ -518,11 +637,6 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
                 chart
                     .warnings
                     .push("차트 추세선·오차 막대는 아직 표시하지 않습니다".into());
-            }
-            if enabled(s, "smooth") || group.scatter_style.starts_with("smooth") {
-                chart
-                    .warnings
-                    .push("차트의 부드러운 곡선은 직선 구간으로 표시합니다".into());
             }
             group.series.push(series);
         }
@@ -546,6 +660,36 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
         chart
             .warnings
             .push("날짜 축의 간격은 저장된 항목 순서로 표시합니다".into());
+    }
+    if chart.groups.iter().any(|g| g.three_dimensional) {
+        chart
+            .warnings
+            .push("3D 차트의 투영·조명은 네이티브 근사 렌더링입니다".into());
+        let estimated_faces: usize = chart
+            .groups
+            .iter()
+            .flat_map(|g| {
+                g.series.iter().map(move |s| {
+                    let faces_per_point = if g.kind == "pie" {
+                        8
+                    } else if matches!(
+                        s.shape.as_deref().unwrap_or(&g.shape),
+                        "cylinder" | "cone" | "coneToMax"
+                    ) {
+                        26
+                    } else {
+                        6
+                    };
+                    s.values.len() * faces_per_point
+                })
+            })
+            .sum();
+        if estimated_faces > 80_000 {
+            chart.warnings.push(
+                "3D 차트가 미리 보기의 80,000개 면 제한을 초과하여 일부 데이터 도형은 생략됩니다"
+                    .into(),
+            );
+        }
     }
     chart.warnings.sort();
     chart.warnings.dedup();
@@ -1042,11 +1186,310 @@ fn point_label(s: &ChartSeries, i: usize, value: f64, total: f64) -> String {
             if total == 0.0 {
                 0.0
             } else {
-                value.abs() / total * 100.0
+                value / total * 100.0
             }
         ))
     }
     parts.join(" · ")
+}
+
+/// MS-OE376 §2.1.1634: factor XY offsets the automatic position; edge XY
+/// starts at the chart origin. Width/height edge mode specifies the far edge.
+fn resolve_layout(layout: Option<&ChartLayout>, chart: Rect, automatic: Rect) -> Rect {
+    let Some(l) = layout else { return automatic };
+    if [(l.x, &l.x_mode), (l.y, &l.y_mode)]
+        .iter()
+        .any(|(v, mode)| {
+            v.is_some_and(|v| {
+                !v.is_finite() || v > 1.0 || v < if *mode == "edge" { 0.0 } else { -1.0 }
+            })
+        })
+        || [l.width, l.height]
+            .iter()
+            .flatten()
+            .any(|v| !v.is_finite() || *v <= 0.0 || *v > 1.0)
+    {
+        return automatic;
+    }
+    let x = l.x.map(|v| if l.x_mode == "edge" { chart.left() } else { automatic.left() } + v * chart.width()).unwrap_or(automatic.left());
+    let y = l.y.map(|v| if l.y_mode == "edge" { chart.top() } else { automatic.top() } + v * chart.height()).unwrap_or(automatic.top());
+    let w = l
+        .width
+        .map(|v| {
+            if l.width_mode == "edge" {
+                chart.left() + v * chart.width() - x
+            } else {
+                v * chart.width()
+            }
+        })
+        .unwrap_or(automatic.width());
+    let h = l
+        .height
+        .map(|v| {
+            if l.height_mode == "edge" {
+                chart.top() + v * chart.height() - y
+            } else {
+                v * chart.height()
+            }
+        })
+        .unwrap_or(automatic.height());
+    if !w.is_finite() || !h.is_finite() || w <= 0.0 || h <= 0.0 {
+        return automatic;
+    }
+    let size = Vec2::new(w.min(chart.width()), h.min(chart.height()));
+    Rect::from_min_size(
+        Pos2::new(
+            x.clamp(chart.left(), chart.right() - size.x),
+            y.clamp(chart.top(), chart.bottom() - size.y),
+        ),
+        size,
+    )
+}
+fn measured(p: &egui::Painter, text: &str, size: f32) -> Vec2 {
+    p.layout_no_wrap(text.to_owned(), FontId::proportional(size), Color32::BLACK)
+        .size()
+}
+fn group_scales(chart: &Chart) -> Vec<Scale> {
+    chart
+        .groups
+        .iter()
+        .map(|g| {
+            let axis = value_axis(chart, g);
+            let values = chart
+                .groups
+                .iter()
+                .filter(|other| value_axis(chart, other).map(|a| &a.id) == axis.map(|a| &a.id))
+                .flat_map(|other| {
+                    other
+                        .series
+                        .iter()
+                        .enumerate()
+                        .flat_map(move |(s, series)| {
+                            (0..series.values.len())
+                                .filter_map(move |i| stack_segment(other, s, i))
+                                .flat_map(|(a, b)| [a, b])
+                        })
+                });
+            limits(values, axis, true)
+        })
+        .collect()
+}
+fn auto_plot_rect(p: &egui::Painter, content: Rect, chart: &Chart, z: f32) -> Rect {
+    let Some(g) = chart.groups.first() else {
+        return content;
+    };
+    let axis = value_axis(chart, g);
+    let scales = group_scales(chart);
+    let tick_width = ticks(scales[0], axis)
+        .iter()
+        .map(|v| {
+            measured(
+                p,
+                &format_value(
+                    *v,
+                    axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
+                ),
+                9.0 * z,
+            )
+            .x
+        })
+        .fold(0.0, f32::max);
+    let cat_width = g
+        .series
+        .iter()
+        .flat_map(|s| (0..s.categories.len()).map(move |i| s.categories.label(i)))
+        .map(|v| measured(p, &v, 9.0 * z).x)
+        .fold(0.0, f32::max);
+    let left = if g.horizontal { cat_width } else { tick_width }
+        + 9.0 * z
+        + if (if g.horizontal {
+            category_axis(chart, g)
+        } else {
+            axis
+        })
+        .is_some_and(|a| !a.title.is_empty())
+        {
+            17.0 * z
+        } else {
+            0.0
+        };
+    let bottom = 20.0 * z
+        + if category_axis(chart, g).is_some_and(|a| !a.title.is_empty())
+            || g.horizontal && axis.is_some_and(|a| !a.title.is_empty())
+        {
+            18.0 * z
+        } else {
+            0.0
+        };
+    Rect::from_min_max(
+        content.min + Vec2::new(left.max(20.0 * z).min(content.width() * 0.38), 8.0 * z),
+        content.max - Vec2::new(12.0 * z, bottom.min(content.height() * 0.35)),
+    )
+}
+fn chart_content(p: &egui::Painter, rect: Rect, chart: &Chart, z: f32, ink: Color32) -> Rect {
+    let mut content = rect.shrink(12.0 * z);
+    if !content.is_positive() {
+        return content;
+    }
+    if !chart.title.is_empty() {
+        let galley = p.layout(
+            chart.title.clone(),
+            FontId::proportional(chart.title_size * z),
+            ink,
+            content.width(),
+        );
+        let automatic = Rect::from_min_size(
+            Pos2::new(content.center().x - galley.size().x / 2.0, content.top()),
+            galley.size(),
+        );
+        let mut title_rect = resolve_layout(chart.title_layout.as_ref(), rect, automatic);
+        let galley = p.layout(
+            chart.title.clone(),
+            FontId::proportional(chart.title_size * z),
+            ink,
+            title_rect.width(),
+        );
+        if chart
+            .title_layout
+            .as_ref()
+            .is_none_or(|l| l.height.is_none())
+        {
+            title_rect.max.y = (title_rect.min.y + galley.size().y).min(rect.bottom());
+        }
+        p.with_clip_rect(title_rect.intersect(p.clip_rect()))
+            .galley(title_rect.min, galley, ink);
+        if !chart.title_overlay {
+            content.min.y = content.min.y.max(title_rect.bottom() + 8.0 * z);
+        }
+    }
+    let mut entries = vec![];
+    let mut color_index = 0;
+    for g in &chart.groups {
+        if matches!(g.kind.as_str(), "pie" | "doughnut") {
+            if let Some(s) = g.series.first() {
+                for i in (0..s.values.len()).filter(|i| !hidden(s, *i)) {
+                    entries.push((
+                        s.categories.label(i),
+                        s.point_colors
+                            .get(&i)
+                            .map(|c| rgba(c))
+                            .unwrap_or_else(|| color_at(chart, i)),
+                    ));
+                }
+            }
+        } else {
+            for s in &g.series {
+                entries.push((s.name.clone(), series_color(chart, s, color_index)));
+                color_index += 1;
+            }
+        }
+    }
+    let Some(position) = &chart.legend else {
+        return content;
+    };
+    if entries.is_empty() || !content.is_positive() {
+        return content;
+    }
+    let horizontal = matches!(position.as_str(), "b" | "t");
+    let row_height = measured(p, "Ag", 9.0 * z).y + 6.0 * z;
+    let widths: Vec<_> = entries
+        .iter()
+        .map(|(name, _)| measured(p, name, 9.0 * z).x + 24.0 * z)
+        .collect();
+    let max_width = widths
+        .iter()
+        .copied()
+        .fold(0.0, f32::max)
+        .min(content.width() * 0.42);
+    let mut slots = vec![];
+    let size = if horizontal {
+        let mut x = 0.0;
+        let mut y = 0.0;
+        let mut row_width: f32 = 0.0;
+        for width in &widths {
+            let width = width.min(content.width());
+            if x > 0.0 && x + width > content.width() {
+                x = 0.0;
+                y += row_height;
+            }
+            slots.push(Rect::from_min_size(
+                Pos2::new(x, y),
+                Vec2::new(width, row_height),
+            ));
+            x += width;
+            row_width = row_width.max(x);
+        }
+        Vec2::new(row_width, (y + row_height).min(content.height() * 0.4))
+    } else {
+        let max_rows = (content.height() / row_height).floor().max(1.0) as usize;
+        for i in 0..entries.len() {
+            slots.push(Rect::from_min_size(
+                Pos2::new(
+                    (i / max_rows) as f32 * max_width,
+                    (i % max_rows) as f32 * row_height,
+                ),
+                Vec2::new(max_width, row_height),
+            ));
+        }
+        Vec2::new(
+            (entries.len().div_ceil(max_rows) as f32 * max_width).min(content.width() * 0.45),
+            entries.len().min(max_rows) as f32 * row_height,
+        )
+    };
+    let automatic = if horizontal {
+        Rect::from_min_size(
+            Pos2::new(
+                content.center().x - size.x / 2.0,
+                if position == "t" {
+                    content.top()
+                } else {
+                    content.bottom() - size.y
+                },
+            ),
+            size,
+        )
+    } else {
+        Rect::from_min_size(
+            Pos2::new(
+                if position == "l" {
+                    content.left()
+                } else {
+                    content.right() - size.x
+                },
+                content.center().y - size.y / 2.0,
+            ),
+            size,
+        )
+    };
+    let legend_rect = resolve_layout(chart.legend_layout.as_ref(), rect, automatic);
+    let legend_p = p.with_clip_rect(legend_rect.intersect(p.clip_rect()));
+    for ((name, color), slot) in entries.iter().zip(&slots) {
+        let origin = legend_rect.min + slot.min.to_vec2();
+        legend_p.rect_filled(
+            Rect::from_min_size(
+                origin + Vec2::new(0.0, 4.0 * z),
+                Vec2::new(9.0 * z, 6.0 * z),
+            ),
+            0.0,
+            *color,
+        );
+        let galley = legend_p.layout(
+            name.clone(),
+            FontId::proportional(9.0 * z),
+            ink,
+            (slot.width() - 15.0 * z).max(1.0),
+        );
+        legend_p.galley(origin + Vec2::new(13.0 * z, 0.0), galley, ink);
+    }
+    if !chart.legend_overlay {
+        match position.as_str() {
+            "t" => content.min.y = content.min.y.max(legend_rect.bottom() + 6.0 * z),
+            "b" => content.max.y = content.max.y.min(legend_rect.top() - 6.0 * z),
+            "l" => content.min.x = content.min.x.max(legend_rect.right() + 6.0 * z),
+            _ => content.max.x = content.max.x.min(legend_rect.left() - 6.0 * z),
+        }
+    }
+    content
 }
 
 /// Paint in a worksheet object rectangle. Geometry comes from the workbook anchor.
@@ -1067,105 +1510,14 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
     if let Some(border) = &chart.border {
         p.rect_stroke(rect, 0.0, Stroke::new(z, rgba(border)), StrokeKind::Inside);
     }
-    let mut content = rect.shrink(12.0 * z);
-    if !chart.title.is_empty() {
-        text(
-            &p,
-            Pos2::new(content.center().x, content.top()),
-            Align2::CENTER_TOP,
-            &chart.title,
-            chart.title_size * z,
-            ink,
-        );
-        content.min.y += 27.0 * z;
+    let content = chart_content(&p, rect, chart, z, ink);
+    if !content.is_positive() {
+        return;
     }
     let pie = chart
         .groups
         .iter()
         .all(|g| matches!(g.kind.as_str(), "pie" | "doughnut"));
-    let mut entries = vec![];
-    let mut color_index = 0;
-    for g in &chart.groups {
-        if matches!(g.kind.as_str(), "pie" | "doughnut") {
-            if let Some(s) = g.series.first() {
-                for i in (0..s.values.len()).filter(|i| !hidden(s, *i)) {
-                    entries.push((
-                        s.categories.label(i),
-                        s.point_colors
-                            .get(&i)
-                            .map(|s| rgba(s))
-                            .unwrap_or_else(|| color_at(chart, i)),
-                    ));
-                }
-            }
-        } else {
-            for s in &g.series {
-                entries.push((s.name.clone(), series_color(chart, s, color_index)));
-                color_index += 1;
-            }
-        }
-    }
-    if let Some(legend) = &chart.legend {
-        if matches!(legend.as_str(), "b" | "t") {
-            let h = 20.0 * z;
-            let y = if legend == "t" {
-                let y = content.top();
-                content.min.y += h;
-                y
-            } else {
-                content.max.y -= h;
-                content.bottom() + 4.0 * z
-            };
-            let mut x = content.left();
-            for (name, color) in entries.iter().take(24) {
-                let width = (name.chars().count() as f32 * 5.4 + 25.0) * z;
-                if x + width > content.right() {
-                    break;
-                }
-                p.rect_filled(
-                    Rect::from_min_size(Pos2::new(x, y + 4.0 * z), Vec2::new(9.0 * z, 6.0 * z)),
-                    0.0,
-                    *color,
-                );
-                text(
-                    &p,
-                    Pos2::new(x + 13.0 * z, y),
-                    Align2::LEFT_TOP,
-                    name,
-                    9.0 * z,
-                    ink,
-                );
-                x += width;
-            }
-        } else {
-            let w = (content.width() * 0.24).clamp(40.0 * z, 120.0 * z);
-            let x = if legend == "l" {
-                let x = content.left();
-                content.min.x += w;
-                x
-            } else {
-                content.max.x -= w;
-                content.right() + 8.0 * z
-            };
-            let start = content.center().y - entries.len().min(20) as f32 * 7.5 * z;
-            for (i, (name, color)) in entries.iter().take(20).enumerate() {
-                let y = start + i as f32 * 15.0 * z;
-                p.rect_filled(
-                    Rect::from_min_size(Pos2::new(x, y + 4.0 * z), Vec2::new(9.0 * z, 6.0 * z)),
-                    0.0,
-                    *color,
-                );
-                text(
-                    &p,
-                    Pos2::new(x + 13.0 * z, y),
-                    Align2::LEFT_TOP,
-                    name,
-                    9.0 * z,
-                    ink,
-                );
-            }
-        }
-    }
     if chart.groups.is_empty() {
         text(
             &p,
@@ -1177,14 +1529,36 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
         );
         return;
     }
-    if pie {
-        paint_pies(&p, content, chart, z);
+    let automatic = if pie {
+        content
+    } else {
+        auto_plot_rect(&p, content, chart, z)
+    };
+    let plot = if chart
+        .plot_layout
+        .as_ref()
+        .is_some_and(|l| l.target == "outer")
+    {
+        let outer = resolve_layout(chart.plot_layout.as_ref(), rect, content);
+        Rect::from_min_max(
+            outer.min + (automatic.min - content.min),
+            outer.max - (content.max - automatic.max),
+        )
+    } else {
+        resolve_layout(chart.plot_layout.as_ref(), rect, automatic)
+    };
+    if chart
+        .groups
+        .iter()
+        .any(|g| g.three_dimensional || g.kind == "surface")
+    {
+        three_d::paint(&p, plot, chart, z);
         return;
     }
-    let plot = Rect::from_min_max(
-        content.min + Vec2::new(49.0 * z, 5.0 * z),
-        content.max - Vec2::new(12.0 * z, 35.0 * z),
-    );
+    if pie {
+        paint_pies(&p, plot, chart, z);
+        return;
+    }
     if !plot.is_positive() {
         return;
     }
@@ -1195,26 +1569,7 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
     let axis = value_axis(chart, primary);
     let horizontal = primary.horizontal;
     let numeric = matches!(primary.kind.as_str(), "scatter" | "bubble");
-    let scales: Vec<_> = chart
-        .groups
-        .iter()
-        .map(|g| {
-            let a = value_axis(chart, g);
-            // Every group sharing a value-axis ID uses one scale (combo charts).
-            let vals = chart
-                .groups
-                .iter()
-                .filter(|other| value_axis(chart, other).map(|a| &a.id) == a.map(|a| &a.id))
-                .flat_map(|other| {
-                    other.series.iter().enumerate().flat_map(move |(s, ser)| {
-                        (0..ser.values.len())
-                            .filter_map(move |i| stack_segment(other, s, i))
-                            .flat_map(|(a, b)| [a, b])
-                    })
-                });
-            limits(vals, a, true)
-        })
-        .collect();
+    let scales = group_scales(chart);
     let primary_scale = scales[0];
     let xaxis = category_axis(chart, primary);
     let xscale = limits(
@@ -1316,7 +1671,13 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
             let max_labels = if horizontal {
                 (plot.height() / (16.0 * z)) as usize
             } else {
-                (plot.width() / (45.0 * z)) as usize
+                (plot.width()
+                    / primary
+                        .series
+                        .iter()
+                        .flat_map(|s| (0..s.categories.len()).map(move |i| s.categories.label(i)))
+                        .map(|label| measured(&p, &label, 9.0 * z).x + 10.0 * z)
+                        .fold(35.0 * z, f32::max)) as usize
             }
             .max(1);
             let stride = count.div_ceil(max_labels);
@@ -1353,34 +1714,27 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
             }
         }
     }
-    if let Some(a) = axis.filter(|a| !a.title.is_empty()) {
-        let pos = if horizontal {
-            Pos2::new(plot.center().x, content.bottom())
-        } else {
-            Pos2::new(content.left(), plot.top() - 2.0 * z)
-        };
-        text(
-            &p,
-            pos,
-            if horizontal {
-                Align2::CENTER_BOTTOM
+    for (a, vertical) in [(axis, !horizontal), (xaxis, horizontal)] {
+        if let Some(a) = a.filter(|a| !a.title.is_empty()) {
+            if vertical {
+                let galley = p.layout_no_wrap(a.title.clone(), FontId::proportional(10.0 * z), ink);
+                let center = Pos2::new(content.left() + galley.size().y / 2.0, plot.center().y);
+                let origin = center + Vec2::new(-galley.size().y / 2.0, galley.size().x / 2.0);
+                p.add(
+                    egui::epaint::TextShape::new(origin, galley, ink)
+                        .with_angle(-std::f32::consts::FRAC_PI_2),
+                );
             } else {
-                Align2::LEFT_BOTTOM
-            },
-            &a.title,
-            10.0 * z,
-            ink,
-        );
-    }
-    if let Some(a) = xaxis.filter(|a| !a.title.is_empty()) {
-        text(
-            &p,
-            Pos2::new(plot.center().x, content.bottom()),
-            Align2::CENTER_BOTTOM,
-            &a.title,
-            10.0 * z,
-            ink,
-        );
+                text(
+                    &p,
+                    Pos2::new(plot.center().x, content.bottom()),
+                    Align2::CENTER_BOTTOM,
+                    &a.title,
+                    10.0 * z,
+                    ink,
+                );
+            }
+        }
     }
     let data_p = p.with_clip_rect(plot.expand(1.0 * z).intersect(p.clip_rect()));
     let mut series_index = 0;
@@ -1421,7 +1775,11 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
                     }
                     if !s.no_line && g.kind != "area" {
                         data_p.add(Shape::line(
-                            points.clone(),
+                            if s.smooth {
+                                smooth_points(points)
+                            } else {
+                                points.clone()
+                            },
                             Stroke::new(
                                 s.line_width.max(0.5) * z,
                                 s.line_color.as_deref().map(rgba).unwrap_or(base),
@@ -1599,6 +1957,29 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
             flush(&mut segment, &mut lower);
         }
     }
+}
+fn smooth_points(points: &[Pos2]) -> Vec<Pos2> {
+    if points.len() < 3 {
+        return points.to_vec();
+    }
+    let mut out = Vec::with_capacity(points.len() * 8);
+    for i in 0..points.len() - 1 {
+        let p0 = points[i.saturating_sub(1)].to_vec2();
+        let p1 = points[i].to_vec2();
+        let p2 = points[i + 1].to_vec2();
+        let p3 = points[(i + 2).min(points.len() - 1)].to_vec2();
+        for j in 0..8 {
+            let t = j as f32 / 8.0;
+            let v = (2.0 * p1
+                + (p2 - p0) * t
+                + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t
+                + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t)
+                * 0.5;
+            out.push(v.to_pos2());
+        }
+    }
+    out.push(*points.last().unwrap());
+    out
 }
 fn paint_pies(p: &egui::Painter, rect: Rect, chart: &Chart, z: f32) {
     let Some(g) = chart.groups.first() else {
@@ -1865,6 +2246,57 @@ mod tests {
         assert!(reference("S!A0").is_none());
     }
     #[test]
+    fn pie_and_doughnut_percent_labels_keep_negative_source_sign() {
+        // Excel uses |value| for the sector area but preserves the source sign
+        // in its percent label, divided by the sum of absolute slice values.
+        let series = ChartSeries {
+            values: ChartData {
+                numbers: vec![Some(18.0), Some(32.0), Some(-6.0), Some(28.0)],
+                ..Default::default()
+            },
+            labels: DataLabels {
+                percent: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        for (kind, three_dimensional) in [("pie", false), ("doughnut", false), ("pie", true)] {
+            let chart = Chart {
+                groups: vec![ChartGroup {
+                    kind: kind.into(),
+                    three_dimensional,
+                    series: vec![series.clone()],
+                    hole_size: 50.0,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let context = egui::Context::default();
+            let output = context.run(egui::RawInput::default(), |ctx| {
+                paint_chart(
+                    &ctx.layer_painter(egui::LayerId::background()),
+                    Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 360.0)),
+                    &chart,
+                    1.0,
+                )
+            });
+            let rendered_labels: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    Shape::Text(text) => Some(text.galley.job.text.as_str()),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                rendered_labels.contains(&"-7%"),
+                "{kind} 3D={three_dimensional} must retain the negative sign: {rendered_labels:?}"
+            );
+            assert!(rendered_labels.contains(&"21%"));
+            assert_eq!(chart.groups[0].series[0].values.numbers[2], Some(-6.0));
+        }
+    }
+    #[test]
     fn stacks_separate_negative_and_positive_values() {
         let g = ChartGroup {
             grouping: "stacked".into(),
@@ -1897,8 +2329,190 @@ mod tests {
         assert_eq!(scale.fraction(0.0), None);
     }
     #[test]
+    fn saved_manual_layout_uses_office_edge_and_factor_semantics() {
+        let xml = r#"<chartSpace><chart><view3D><rotX val="35"/><rotY val="60"/><depthPercent val="180"/><hPercent val="75"/><rAngAx val="0"/><perspective val="50"/></view3D><title><layout><manualLayout><xMode val="edge"/><yMode val="edge"/><x val="0.1"/><y val="0.05"/></manualLayout></layout><overlay val="1"/></title><plotArea><layout><manualLayout><layoutTarget val="inner"/><xMode val="edge"/><yMode val="edge"/><x val="0.2"/><y val="0.25"/><w val="0.6"/><h val="0.5"/></manualLayout></layout><bar3DChart><shape val="cylinder"/><gapDepth val="75"/></bar3DChart></plotArea><legend><layout><manualLayout><xMode val="factor"/><x val="0.1"/></manualLayout></layout><overlay val="1"/></legend></chart></chartSpace>"#;
+        let chart = parse_chart(xml, &Theme::default()).unwrap();
+        assert!(chart.groups[0].three_dimensional);
+        assert_eq!(chart.groups[0].shape, "cylinder");
+        assert_eq!(chart.groups[0].gap_depth, 75.0);
+        assert_eq!(chart.view_3d.rotation_x, 35.0);
+        assert_eq!(chart.view_3d.rotation_y, 60.0);
+        assert_eq!(chart.view_3d.depth_percent, 180.0);
+        assert_eq!(chart.view_3d.height_percent, 75.0);
+        assert_eq!(chart.view_3d.perspective, 50.0);
+        assert!(!chart.view_3d.right_angle_axes);
+        assert!(chart.title_overlay && chart.legend_overlay);
+        let rect = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(400.0, 300.0));
+        let automatic = Rect::from_min_size(Pos2::new(50.0, 60.0), Vec2::new(200.0, 100.0));
+        assert_eq!(
+            resolve_layout(chart.plot_layout.as_ref(), rect, automatic),
+            Rect::from_min_size(Pos2::new(90.0, 95.0), Vec2::new(240.0, 150.0))
+        );
+        assert_eq!(
+            resolve_layout(chart.legend_layout.as_ref(), rect, automatic).left(),
+            90.0
+        );
+        let layout = ChartLayout {
+            x: Some(0.25),
+            width: Some(0.75),
+            x_mode: "edge".into(),
+            width_mode: "edge".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_layout(Some(&layout), rect, automatic).width(),
+            200.0
+        );
+        let invalid = ChartLayout {
+            x: Some(-0.1),
+            x_mode: "edge".into(),
+            ..Default::default()
+        };
+        assert_eq!(resolve_layout(Some(&invalid), rect, automatic), automatic);
+        assert!(!chart.warnings.iter().any(|w| w.contains("수동 배치")));
+    }
+    #[test]
+    fn three_d_families_paint_source_series_and_survive_saved_analysis() {
+        let series = r#"<ser><tx><v>Revenue</v></tx><cat><strLit><pt idx="0"><v>Jan</v></pt><pt idx="1"><v>Feb</v></pt><pt idx="2"><v>Mar</v></pt></strLit></cat><val><numLit><pt idx="0"><v>8</v></pt><pt idx="1"><v>-3</v></pt><pt idx="2"><v>12</v></pt></numLit></val></ser>"#;
+        for kind in [
+            "bar3DChart",
+            "line3DChart",
+            "area3DChart",
+            "pie3DChart",
+            "surface3DChart",
+        ] {
+            let xml = format!(
+                "<chartSpace><chart><view3D><rotX val=\"30\"/><rotY val=\"25\"/></view3D><plotArea><{kind}>{series}{series}</{kind}></plotArea></chart></chartSpace>"
+            );
+            let chart = parse_chart(&xml, &Theme::default()).unwrap();
+            let saved = serde_json::to_string(&chart).unwrap();
+            let restored: Chart = serde_json::from_str(&saved).unwrap();
+            assert!(restored.groups[0].three_dimensional);
+            assert_eq!(
+                restored.groups[0].series[0].values.numbers,
+                vec![Some(8.0), Some(-3.0), Some(12.0)]
+            );
+            let context = egui::Context::default();
+            let output = context.run(egui::RawInput::default(), |ctx| {
+                paint_chart(
+                    &ctx.layer_painter(egui::LayerId::background()),
+                    Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 360.0)),
+                    &restored,
+                    1.0,
+                )
+            });
+            let meshes = context.tessellate(output.shapes, 1.0);
+            let count: usize = meshes
+                .iter()
+                .filter_map(|p| {
+                    if let egui::epaint::Primitive::Mesh(m) = &p.primitive {
+                        assert!(
+                            m.vertices
+                                .iter()
+                                .all(|v| v.pos.x.is_finite() && v.pos.y.is_finite())
+                        );
+                        Some(m.indices.len())
+                    } else {
+                        None
+                    }
+                })
+                .sum();
+            assert!(
+                count > 100,
+                "{kind} must render data faces, axes and labels"
+            );
+        }
+    }
+    #[test]
+    fn automatic_layout_measures_long_titles_legends_and_value_labels() {
+        let context = egui::Context::default();
+        let chart = Chart {
+            title: "A long chart title that must wrap rather than collide with the legend and plot"
+                .into(),
+            legend: Some("b".into()),
+            groups: vec![ChartGroup {
+                kind: "bar".into(),
+                series: (0..6)
+                    .map(|i| ChartSeries {
+                        name: format!("Department {i} and regional revenue"),
+                        values: ChartData {
+                            numbers: vec![Some(123456.0), Some(234567.0)],
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(450.0, 330.0));
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            let p = ctx.layer_painter(egui::LayerId::background());
+            let content = chart_content(&p, rect, &chart, 1.0, Color32::BLACK);
+            assert!(
+                content.top() > 35.0,
+                "wrapped title reserves measured height"
+            );
+            assert!(
+                content.bottom() < 290.0,
+                "multirow legend reserves measured height"
+            );
+            let plot = auto_plot_rect(&p, content, &chart, 1.0);
+            let mut small = chart.clone();
+            for series in &mut small.groups[0].series {
+                series.values.numbers = vec![Some(1.0), Some(2.0)];
+            }
+            let small_plot = auto_plot_rect(&p, content, &small, 1.0);
+            assert!(
+                plot.left() > small_plot.left() + 5.0,
+                "six-digit labels need more room than single-digit labels"
+            );
+            assert!(plot.is_positive());
+        });
+        let points = [Pos2::new(0., 10.), Pos2::new(10., 0.), Pos2::new(20., 10.)];
+        let smooth = smooth_points(&points);
+        assert_eq!(smooth.first(), points.first());
+        assert_eq!(smooth.last(), points.last());
+        assert_eq!(smooth.len(), 17);
+    }
+    #[test]
+    fn crowded_or_tiny_chart_rectangles_never_panic() {
+        let chart = Chart {
+            title: "Long title".into(),
+            legend: Some("r".into()),
+            groups: vec![ChartGroup {
+                kind: "bar".into(),
+                series: vec![ChartSeries {
+                    name: "A long legend label".into(),
+                    values: ChartData {
+                        numbers: vec![Some(10.)],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let context = egui::Context::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            for size in [10., 25., 50., 100., 200.] {
+                for zoom in [0.1, 1., 5.] {
+                    paint_chart(
+                        &painter,
+                        Rect::from_min_size(Pos2::ZERO, Vec2::splat(size)),
+                        &chart,
+                        zoom,
+                    );
+                }
+            }
+        });
+    }
+    #[test]
     fn unsupported_types_are_disclosed_and_large_caches_rejected() {
-        let xml = "<chartSpace><chart><plotArea><surface3DChart/></plotArea></chart></chartSpace>";
+        let xml = "<chartSpace><chart><plotArea><stockChart/></plotArea></chart></chartSpace>";
         assert_eq!(
             parse_chart(xml, &Theme::default()).unwrap().warnings.len(),
             1
