@@ -110,6 +110,7 @@ struct Desktop {
     inspect_row: u32,
     inspect_col: u32,
     zoom: f32,
+    sheet_view: crate::sheet_view::SheetView,
 }
 
 impl Desktop {
@@ -178,7 +179,7 @@ impl Desktop {
             .entry(egui::FontFamily::Monospace)
             .or_default()
             .push("pretendard-regular".into());
-        cc.egui_ctx.set_fonts(fonts);
+        cc.egui_ctx.set_fonts(fonts.clone());
         Self {
             endpoint: "http://127.0.0.1:9931/v1".into(),
             model: String::new(),
@@ -201,6 +202,7 @@ impl Desktop {
             inspect_row: 1,
             inspect_col: 1,
             zoom: 1.0,
+            sheet_view: crate::sheet_view::SheetView::new(fonts),
         }
     }
 
@@ -515,73 +517,110 @@ impl Desktop {
         let Some(page) = document.pages.get(self.selected_page) else {
             return;
         };
-        egui::ScrollArea::vertical().id_salt("structure-scroll").show(ui, |ui| {
-            ui.heading(&page.name);
-            if page.hidden { ui.colored_label(WARM, "숨김 시트 · 분석에 포함됨"); }
-            let tables: Vec<_> = self.result.as_ref().map(|r| r.tables.iter().filter(|t| t.page_id == page.id).collect()).unwrap_or_default();
-            ui.horizontal_wrapped(|ui| {
-                for table in &tables {
-                    let selected = self.selected_table.as_ref() == Some(&table.id);
-                    let label = RichText::new(&table.name).family(if selected { semibold_family() } else { egui::FontFamily::Proportional });
-                    if ui.selectable_label(selected, label).clicked() { self.selected_table = Some(table.id.clone()); }
-                }
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(&page.name)
+                    .size(17.0)
+                    .family(semibold_family()),
+            );
+            if page.hidden {
+                ui.label(
+                    RichText::new("숨김 시트 · 분석에 포함됨")
+                        .size(11.5)
+                        .color(WARM),
+                );
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    RichText::new("원본 서식 · 읽기 전용")
+                        .size(11.5)
+                        .color(MUTED),
+                );
             });
-            if let Some(table) = tables.iter().find(|t| Some(&t.id) == self.selected_table.as_ref()) {
-                ui.add_space(8.0);
-                egui::Grid::new("regions").num_columns(2).striped(true).show(ui, |ui| {
-                    for (name, bounds) in [("테이블", Some(table.bounds)), ("제목", table.title), ("열 헤더", table.column_header), ("행 헤더", table.row_header), ("데이터 값", Some(table.data))] {
-                        ui.label(name); ui.monospace(bounds.map(range_name).unwrap_or_else(|| "—".into())); ui.end_row();
-                    }
-                });
-                ui.label(RichText::new(format!("{} · {}", table.orientation, table.evidence)).color(MUTED));
-                ui.collapsing(format!("헤더 계층 · {}개 노드", table.headers.len()), |ui| {
-                    for header in &table.headers {
-                        let parent = header.parent_id.as_ref().and_then(|id| table.headers.iter().find(|h| &h.id == id)).map(|h| h.label.as_str()).unwrap_or("root");
-                        ui.label(format!("{}  {} → {}  [{}]", header.axis, parent, header.label, range_name(header.bounds)));
-                    }
-                });
-            } else if self.result.is_some() { ui.label("검증된 테이블이 없습니다. 분석 범위에서 세부 내용을 확인하세요."); }
-            ui.add_space(14.0); ui.separator(); ui.add_space(8.0);
-            ui.label(RichText::new("원본 셀 탐색").small().color(ACCENT));
-            if let Some(grid) = &page.grid {
-                ui.horizontal(|ui| {
-                    ui.label("행"); ui.add(egui::DragValue::new(&mut self.inspect_row).range(1..=grid.rows.max(1)));
-                    ui.label("열"); ui.add(egui::DragValue::new(&mut self.inspect_col).range(1..=grid.cols.max(1)));
-                    ui.monospace(cell_name(self.inspect_row, self.inspect_col));
-                });
-                if let Some(cell) = grid.resolved_cell(self.inspect_row, self.inspect_col) {
-                    ui.label(format!("타입: {:?}  ·  원본: {}", cell.kind, cell_name(cell.row, cell.col)));
-                    ui.label(RichText::new(&cell.value).size(20.0));
-                    if let Some(formula) = &cell.formula { ui.monospace(format!("수식: {formula}")); }
-                    if cell.style.bold || cell.style.indent > 0 { ui.label(format!("굵게: {} · 들여쓰기: {}", cell.style.bold, cell.style.indent)); }
-                } else { ui.label(RichText::new("빈 셀").color(MUTED)); }
-                let row_start = self.inspect_row.saturating_sub(3).max(1);
-                let col_start = self.inspect_col.saturating_sub(2).max(1);
-                ui.add_space(10.0);
-                egui::ScrollArea::horizontal().id_salt("source-grid-scroll").show(ui, |ui| {
-                    egui::Grid::new("source-grid").striped(true).min_col_width(105.0).show(ui, |ui| {
-                        ui.label("");
-                        for col in col_start..=grid.cols.min(col_start + 7) { ui.monospace(column_name(col)); }
-                        ui.end_row();
-                        for row in row_start..=grid.rows.min(row_start + 11) {
-                            ui.monospace(row.to_string());
-                            for col in col_start..=grid.cols.min(col_start + 7) {
-                                let value = grid.resolved_cell(row, col).map(|c| c.value.as_str()).unwrap_or("");
-                                let short: String = value.chars().take(22).collect();
-                                let color = tables.iter().find(|t| Some(&t.id) == self.selected_table.as_ref()).map(|t| {
-                                    if t.column_header.is_some_and(|b| b.contains(row, col)) { ACCENT }
-                                    else if t.row_header.is_some_and(|b| b.contains(row, col)) { WARM }
-                                    else { TEXT }
-                                }).unwrap_or(TEXT);
-                                if ui.selectable_label(row == self.inspect_row && col == self.inspect_col, RichText::new(if short.is_empty() { "·" } else { &short }).color(color)).on_hover_text(value).clicked() { self.inspect_row = row; self.inspect_col = col; }
+        });
+        let tables: Vec<_> = self
+            .result
+            .as_ref()
+            .map(|r| r.tables.iter().filter(|t| t.page_id == page.id).collect())
+            .unwrap_or_default();
+        if !tables.is_empty() {
+            ui.collapsing(
+                format!("분석한 구조 · {}개 테이블", tables.len()),
+                |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        for table in &tables {
+                            let selected = self.selected_table.as_ref() == Some(&table.id);
+                            let label = RichText::new(&table.name).family(if selected {
+                                semibold_family()
+                            } else {
+                                egui::FontFamily::Proportional
+                            });
+                            if ui.selectable_label(selected, label).clicked() {
+                                self.selected_table = Some(table.id.clone());
                             }
-                            ui.end_row();
                         }
                     });
-                });
-                ui.label(RichText::new("선택한 셀 주변 미리보기입니다. 행·열을 바꾸어 모든 위치를 탐색할 수 있습니다.").small().color(MUTED));
-            }
-        });
+                    if let Some(table) = tables
+                        .iter()
+                        .find(|t| Some(&t.id) == self.selected_table.as_ref())
+                    {
+                        egui::ScrollArea::vertical()
+                            .id_salt("source-analysis-details")
+                            .max_height(155.0)
+                            .show(ui, |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    for (name, bounds) in [
+                                        ("테이블", Some(table.bounds)),
+                                        ("제목", table.title),
+                                        ("열 헤더", table.column_header),
+                                        ("행 헤더", table.row_header),
+                                        ("값", Some(table.data)),
+                                    ] {
+                                        if let Some(bounds) = bounds {
+                                            ui.label(format!("{name} {}", range_name(bounds)));
+                                        }
+                                    }
+                                });
+                                ui.collapsing(
+                                    format!("헤더 계층 · {}개 노드", table.headers.len()),
+                                    |ui| {
+                                        for header in &table.headers {
+                                            let parent = header
+                                                .parent_id
+                                                .as_ref()
+                                                .and_then(|id| {
+                                                    table.headers.iter().find(|h| &h.id == id)
+                                                })
+                                                .map(|h| h.label.as_str())
+                                                .unwrap_or("root");
+                                            ui.label(format!(
+                                                "{}  {} → {}  [{}]",
+                                                header.axis,
+                                                parent,
+                                                header.label,
+                                                range_name(header.bounds)
+                                            ));
+                                        }
+                                    },
+                                );
+                            });
+                    }
+                },
+            );
+        }
+        ui.add_space(5.0);
+        if let Some(grid) = &page.grid {
+            self.sheet_view.show(
+                ui,
+                &format!("{}:{}", document.id, page.id),
+                grid,
+                &mut self.inspect_row,
+                &mut self.inspect_col,
+                &tables,
+            );
+        } else {
+            ui.label("이 페이지는 시트 미리보기를 지원하지 않습니다.");
+        }
     }
 
     fn diagram(&mut self, ui: &mut egui::Ui, compact_inspector: bool) {

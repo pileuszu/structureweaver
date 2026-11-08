@@ -2,6 +2,30 @@
 
 The archived evidence uses generated, non-personal fixtures only.
 
+## Original worksheet styling — 2026-11-08
+
+The Rust worksheet viewer was checked against Microsoft Excel for Mac using
+`fixtures/styled.xlsx` at the workbook's saved 90% zoom. The fixture opens in Excel
+without a repair warning. The native app displays the merged title and note,
+fonts and decorations, colored headers, patterned and blank-cell fills, borders,
+rotated and shrink-to-fit text, currency/percentage/date/time formats, row heights
+and column widths. Scrolling preserves the five frozen rows and first column;
+the hidden row and column keep their original source coordinates. macOS worksheet
+point sizing is kept separate from application UI typography.
+
+All **49 automated tests** pass, including style inheritance, theme/tint/indexed
+colors, worksheet geometry, number-format sections and dates, old analysis JSON
+compatibility, and DrawingML extension elements whose `row`/`col` names must not be
+treated as worksheet coordinates. Strict Clippy and formatting checks pass. Rich
+presentation styles are excluded from LLM context so the original analysis budget
+is preserved, and styled blank cells do not schedule inference or inflate missing
+data coverage.
+
+The viewer is read-only and renders common stored cell formatting. Conditional
+formatting, table automatic styles, charts/drawings and other detected unsupported
+features are disclosed in the UI; this is not a pixel-perfect Excel engine.
+User workbooks and session backups are not part of the archived evidence.
+
 | Case | Actual local inference outcome |
 | --- | --- |
 | `fixtures/demo.xlsx` | Gemma through Llama.app: 3/3 sheets complete, 3 entities, 2 many-to-one relationship candidates (Orders.customer_id → Customers.customer_id; LineItems.order_id → Orders.order_id). |

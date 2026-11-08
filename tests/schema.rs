@@ -16,6 +16,7 @@ fn cell(row: u32, col: u32, value: &str, kind: CellKind) -> Cell {
         kind,
         formula: None,
         style: CellStyle::default(),
+        ..Cell::default()
     }
 }
 fn record(
@@ -50,6 +51,7 @@ fn record(
                 merges: vec![],
                 hidden_rows: vec![],
                 hidden_cols: vec![],
+                layout: SheetLayout::default(),
             }),
             blocks: vec![],
         },
@@ -220,6 +222,7 @@ fn matrix_unpivots_headers_and_keeps_missing_cells_nullable() {
         merges: vec![bounds(1, 2, 1, 3)],
         hidden_rows: vec![],
         hidden_cols: vec![],
+        layout: SheetLayout::default(),
     };
     let page = Page {
         id: "p".into(),
@@ -320,6 +323,7 @@ fn matrix_uses_explicit_row_parent_paths_and_never_fills_unknown_blanks() {
         merges: vec![],
         hidden_rows: vec![],
         hidden_cols: vec![],
+        layout: SheetLayout::default(),
     };
     let page = Page {
         id: "p".into(),

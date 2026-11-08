@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Workbook cell coordinates are 1-based and inclusive everywhere.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,7 +26,7 @@ impl Bounds {
             && other.left <= self.right
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CellKind {
     Text,
@@ -33,15 +34,75 @@ pub enum CellKind {
     Boolean,
     Date,
     Error,
+    #[default]
     Empty,
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BorderSide {
+    pub style: String,
+    pub color: Option<String>,
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CellBorders {
+    pub left: BorderSide,
+    pub right: BorderSide,
+    pub top: BorderSide,
+    pub bottom: BorderSide,
+    pub diagonal: BorderSide,
+    pub diagonal_up: bool,
+    pub diagonal_down: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CellStyle {
     pub bold: bool,
     pub indent: u32,
     pub fill: Option<String>,
+    pub font_name: Option<String>,
+    /// Font size in points, as stored by Excel.
+    pub font_size: f32,
+    pub italic: bool,
+    pub underline: String,
+    pub strike: bool,
+    pub font_color: Option<String>,
+    pub fill_background: Option<String>,
+    pub fill_pattern: String,
+    pub borders: CellBorders,
+    pub horizontal: String,
+    pub vertical: String,
+    pub wrap_text: bool,
+    pub shrink_to_fit: bool,
+    /// OOXML rotation: 0–90 counterclockwise, 91–180 clockwise, 255 stacked.
+    pub text_rotation: i32,
+    pub number_format: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Default for CellStyle {
+    fn default() -> Self {
+        Self {
+            bold: false,
+            indent: 0,
+            fill: None,
+            font_name: None,
+            font_size: 11.0,
+            italic: false,
+            underline: "none".into(),
+            strike: false,
+            font_color: None,
+            fill_background: None,
+            fill_pattern: "none".into(),
+            borders: CellBorders::default(),
+            horizontal: "general".into(),
+            vertical: "bottom".into(),
+            wrap_text: false,
+            shrink_to_fit: false,
+            text_rotation: 0,
+            number_format: None,
+        }
+    }
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Cell {
     pub row: u32,
     pub col: u32,
@@ -49,8 +110,54 @@ pub struct Cell {
     pub kind: CellKind,
     pub formula: Option<String>,
     pub style: CellStyle,
+    /// Numeric OOXML value, including a date's original Excel serial.
+    #[serde(default)]
+    pub raw_number: Option<f64>,
+    #[serde(default)]
+    pub display_value: Option<String>,
+}
+impl Cell {
+    pub fn has_content(&self) -> bool {
+        !self.value.is_empty() || self.formula.is_some()
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SheetLayout {
+    pub default_row_height: f32,
+    pub default_col_width: f32,
+    pub row_heights: BTreeMap<u32, f32>,
+    pub column_widths: BTreeMap<u32, f32>,
+    pub row_styles: BTreeMap<u32, CellStyle>,
+    pub column_styles: BTreeMap<u32, CellStyle>,
+    pub default_style: CellStyle,
+    pub show_grid_lines: bool,
+    pub zoom_scale: f32,
+    pub freeze_rows: u32,
+    pub freeze_cols: u32,
+    pub date1904: bool,
+    pub unsupported_features: Vec<String>,
+}
+impl Default for SheetLayout {
+    fn default() -> Self {
+        Self {
+            default_row_height: 15.0,
+            default_col_width: 8.43,
+            row_heights: BTreeMap::new(),
+            column_widths: BTreeMap::new(),
+            row_styles: BTreeMap::new(),
+            column_styles: BTreeMap::new(),
+            default_style: CellStyle::default(),
+            show_grid_lines: true,
+            zoom_scale: 100.0,
+            freeze_rows: 0,
+            freeze_cols: 0,
+            date1904: false,
+            unsupported_features: vec![],
+        }
+    }
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Grid {
     pub rows: u32,
     pub cols: u32,
@@ -58,6 +165,8 @@ pub struct Grid {
     pub merges: Vec<Bounds>,
     pub hidden_rows: Vec<u32>,
     pub hidden_cols: Vec<u32>,
+    #[serde(default)]
+    pub layout: SheetLayout,
 }
 impl Grid {
     pub fn cell(&self, row: u32, col: u32) -> Option<&Cell> {

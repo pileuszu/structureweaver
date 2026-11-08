@@ -6,6 +6,9 @@
 | --- | --- |
 | `domain.rs` | Serializable document, grid/page source coordinates, table regions, header trees, relational draft and page status |
 | `ingest.rs` | `DocumentAdapter`, Excel OOXML metadata + calamine typed values, input/resource validation |
+| `xlsx_styles.rs` | Workbook style inheritance, font/alignment/border/pattern metadata, resolved theme/indexed colors |
+| `number_format.rs` | Presentation-only Excel number/date/time/currency formats; preserves analysis values |
+| `sheet_view.rs` | Read-only native worksheet canvas with source fonts, geometry, merges, frozen panes and viewport culling |
 | `render.rs` | Unicode text and cell-type overlay PNGs with global row/column labels |
 | `llama.rs` | Local-only blocking HTTP transport, model discovery, vision + JSON schema requests, bounded errors/timeouts |
 | `analysis.rs` | Tile scheduling, structured decisions, validation/retry, whole-sheet reconciliation, coverage, hierarchy |
@@ -18,7 +21,7 @@
 
 Coordinates are one-based and inclusive. Source page IDs preserve workbook order; the document SHA-256 identifies original bytes. Hidden cells are included by default. Formula text and cached value remain separate.
 
-Every populated cell belongs to exactly one scheduled tile. Empty physical tiles do not consume model calls. The VLM sees exact cell data and a visual overlay; long visual labels are clipped for readability but the JSON facts are not shortened. Merged anchor values are supplied even if the anchor is outside the current tile.
+Every populated cell belongs to exactly one scheduled tile. Empty physical tiles and style-only blank cells do not consume model calls. Blank formatted cells are still preserved for display. The VLM sees exact cell data and a visual overlay; long visual labels are clipped for readability but the JSON facts are not shortened. Merged anchor values are supplied even if the anchor is outside the current tile. The prompt uses compact bold/indent/fill hints, so full viewer styles do not inflate the model context.
 
 Raw rectangles must first be within the source tile/table. Luna-style deterministic normalization separates overlapping title/header/data bands; explicit merged text spans close missing parent-header levels and adjacent category columns under a blank header corner. These corrections are identified in table evidence and never synthesize source values. Final table and component rectangles must be valid and disjoint; headers must align with the data axis. Record tables cannot classify a leading text field as a row header. The model can return multiple independent tables. A failed tile does not erase other successful sheets. Invalid tile inference responses receive one bounded retry. Input/context-budget errors fail explicitly before inference; whole-sheet reconciliation makes one request and retains fragments on failure.
 
@@ -43,7 +46,13 @@ Reference commit: `bist-mini-final/bist-mini-final@0e0d7638b96c9f9db816c3959cec6
 - `grid_structure.py`: merged-span header parent construction. The BFS helpers in that file are not the current Luna detector's table-detection algorithm.
 - `structured_cell_text.py`: preserve row/column context and merged anchor identity. StructureWeaver exports relational drafts instead of RAG text chunks.
 
-New behavior: include hidden content, visit all populated tiles, reconcile whole-sheet fragments, infer/inspect ERD candidates, local Llama transport and native desktop UI. No Python runtime is used by the application; the fixture generator is development-only Python standard library.
+New behavior: include hidden content, visit all populated tiles, reconcile whole-sheet fragments, infer/inspect ERD candidates, local Llama transport and native desktop UI. No Python runtime is used by the application. Basic fixtures use a development-only Python standard library generator; the visual styling fixture additionally uses openpyxl to normalize its OOXML package.
+
+## Source appearance
+
+`Cell.value` remains the typed source text for analysis. `raw_number` retains numeric OOXML values (including date serials); `display_value` and the stored number format are for presentation only. `Grid.layout` records dimensions, row/column defaults, hidden axes, gridlines, zoom and frozen panes. New style/layout fields use serde defaults so previously exported analyses remain readable; their original workbook must be reopened to recover styling that old exports did not store.
+
+The source canvas uses the document font family/weight from installed TTF/OTF/TTC faces, with an explicit fallback notice when unavailable. It draws only visible rows/columns and merged intersections. Analysis outlines are opt-in and do not recolor source cells. Unsupported visual constructs are detected and reported; the viewer is not a complete Excel rendering engine. See README for current limits.
 
 ## UI style reference
 

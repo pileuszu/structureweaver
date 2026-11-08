@@ -18,6 +18,7 @@ fn cell(row: u32, col: u32, value: &str) -> Cell {
         kind: CellKind::Text,
         formula: None,
         style: CellStyle::default(),
+        ..Cell::default()
     }
 }
 fn grid() -> Grid {
@@ -33,6 +34,7 @@ fn grid() -> Grid {
         merges: vec![],
         hidden_rows: vec![450],
         hidden_cols: vec![66],
+        layout: SheetLayout::default(),
     }
 }
 #[test]
@@ -43,6 +45,50 @@ fn all_populated_cells_are_tiled_once_including_hidden_and_late_coordinates() {
         assert_eq!(ts.iter().filter(|t| t.contains(c.row, c.col)).count(), 1);
     }
     assert_eq!(ts.len(), 3);
+}
+
+#[test]
+fn decorative_blank_cells_do_not_schedule_inference_or_count_as_missing_values() {
+    let mut g = grid();
+    g.cells = vec![
+        cell(1, 1, "name"),
+        cell(2, 1, "Alice"),
+        Cell {
+            row: 450,
+            col: 66,
+            style: CellStyle {
+                fill: Some("FF00FF00".into()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        Cell {
+            row: 2,
+            col: 2,
+            style: CellStyle {
+                bold: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    ];
+    assert_eq!(tiles(&g), vec![b(1, 1, 32, 10)]);
+    let d = Decision {
+        name: "Names".into(),
+        bounds: b(1, 1, 2, 2),
+        title: None,
+        column_header: Some(b(1, 1, 1, 1)),
+        row_header: None,
+        data: b(2, 1, 2, 1),
+        orientation: "records".into(),
+    };
+    assert!(validate_decision(&d, b(1, 1, 32, 10), &g).is_ok());
+    g.cells[2].formula = Some("RAND()".into());
+    assert_eq!(
+        tiles(&g).len(),
+        2,
+        "An unresolved formula still requires analysis"
+    );
 }
 #[test]
 fn rejects_hallucinated_and_overlapping_regions() {
@@ -76,6 +122,7 @@ fn column_hierarchy_follows_merged_spans() {
         merges: vec![b(1, 1, 1, 2)],
         hidden_rows: vec![],
         hidden_cols: vec![],
+        layout: SheetLayout::default(),
     };
     let t = Table {
         id: "t".into(),
@@ -120,6 +167,7 @@ fn luna_normalization_separates_blank_matrix_corner_and_duplicate_title() {
         merges: vec![b(1, 3, 1, 6)],
         hidden_rows: vec![],
         hidden_cols: vec![],
+        layout: SheetLayout::default(),
     };
     let mut d = Decision {
         name: "matrix".into(),
@@ -168,6 +216,7 @@ fn indentation_builds_same_column_row_parent_context() {
         merges: vec![],
         hidden_rows: vec![],
         hidden_cols: vec![],
+        layout: SheetLayout::default(),
     };
     let t = Table {
         id: "t".into(),
@@ -197,6 +246,7 @@ fn valid_bounding_box_does_not_hide_unclassified_cells() {
         merges: vec![],
         hidden_rows: vec![],
         hidden_cols: vec![],
+        layout: SheetLayout::default(),
     };
     let d = Decision {
         name: "gap".into(),
@@ -228,6 +278,7 @@ fn matrix_rejects_label_column_without_measure_header() {
         merges: vec![],
         hidden_rows: vec![],
         hidden_cols: vec![],
+        layout: SheetLayout::default(),
     };
     let d = Decision {
         name: "matrix".into(),

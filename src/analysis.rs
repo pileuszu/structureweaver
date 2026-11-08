@@ -41,7 +41,7 @@ fn layout_schema() -> Value {
 /// Empty space does not need inference. Coordinates never reset at tile boundaries.
 pub fn tiles(grid: &Grid) -> Vec<Bounds> {
     let mut bins = BTreeSet::new();
-    for c in &grid.cells {
+    for c in grid.cells.iter().filter(|c| c.has_content()) {
         bins.insert(((c.row - 1) / 32, (c.col - 1) / 10));
     }
     bins.into_iter()
@@ -53,24 +53,47 @@ pub fn tiles(grid: &Grid) -> Vec<Bounds> {
         })
         .collect()
 }
+// The viewer preserves full Excel formatting. Inference only needs the original
+// structural hints; serializing every border/font field would exhaust context.
+fn structural_style(cell: &Cell) -> Value {
+    json!({"bold":cell.style.bold,"indent":cell.style.indent,"fill":cell.style.fill})
+}
+fn structural_cell(cell: &Cell) -> Value {
+    json!({"row":cell.row,"col":cell.col,"value":cell.value,"kind":cell.kind,"formula":cell.formula,"style":structural_style(cell)})
+}
 fn prompt(page: &Page, grid: &Grid, tile: Bounds) -> Result<String> {
     let cells: Vec<Value> = grid
         .cells
         .iter()
-        .filter(|c| tile.contains(c.row, c.col))
-        .map(|c| json!([c.row, c.col, c.value, c.kind, c.formula, c.style]))
+        .filter(|c| c.has_content() && tile.contains(c.row, c.col))
+        .map(|c| {
+            json!([
+                c.row,
+                c.col,
+                c.value,
+                c.kind,
+                c.formula,
+                structural_style(c)
+            ])
+        })
         .collect();
     let merges: Vec<_> = grid.merges.iter().filter(|m| m.overlaps(tile)).collect();
     let context: Vec<_> = grid
         .cells
         .iter()
         .filter(|c| {
-            c.row <= 6 && c.col >= tile.left && c.col <= tile.right && !tile.contains(c.row, c.col)
+            c.has_content()
+                && c.row <= 6
+                && c.col >= tile.left
+                && c.col <= tile.right
+                && !tile.contains(c.row, c.col)
         })
+        .map(structural_cell)
         .collect();
     let merge_anchors: Vec<_> = merges
         .iter()
         .filter_map(|m| grid.cell(m.top, m.left))
+        .map(structural_cell)
         .collect();
     let facts = serde_json::to_string(
         &json!({"sheet":page.name,"tile":tile,"sheet_rows":grid.rows,"sheet_columns":grid.cols,"cells_row_col_value_kind_formula_style":cells,"merges":merges,"merged_anchor_cells":merge_anchors,"earlier_header_context_not_in_tile":context}),
@@ -264,14 +287,20 @@ pub fn validate_decision(d: &Decision, tile: Bounds, grid: &Grid) -> Result<()> 
     {
         bail!("row header does not align with data");
     }
-    if !grid.cells.iter().any(|c| d.data.contains(c.row, c.col)) {
+    if !grid
+        .cells
+        .iter()
+        .any(|c| c.has_content() && d.data.contains(c.row, c.col))
+    {
         bail!("data region has no source cells");
     }
     let missing: Vec<_> = grid
         .cells
         .iter()
         .filter(|c| {
-            d.bounds.contains(c.row, c.col) && !regions.iter().any(|b| b.contains(c.row, c.col))
+            c.has_content()
+                && d.bounds.contains(c.row, c.col)
+                && !regions.iter().any(|b| b.contains(c.row, c.col))
         })
         .map(|c| {
             format!(
@@ -394,12 +423,14 @@ fn reconcile(
         .cells
         .iter()
         .filter(|c| {
-            fragments.iter().any(|t| {
-                t.column_header.is_some_and(|b| b.contains(c.row, c.col))
-                    || t.title.is_some_and(|b| b.contains(c.row, c.col))
-                    || (t.bounds.contains(c.row, c.col) && c.row < t.data.top.saturating_add(2))
-            })
+            c.has_content()
+                && fragments.iter().any(|t| {
+                    t.column_header.is_some_and(|b| b.contains(c.row, c.col))
+                        || t.title.is_some_and(|b| b.contains(c.row, c.col))
+                        || (t.bounds.contains(c.row, c.col) && c.row < t.data.top.saturating_add(2))
+                })
         })
+        .map(structural_cell)
         .collect();
     let facts = serde_json::to_string(
         &json!({"sheet":page.name,"sheet_bounds":grid.bounds(),"fragments":fragments,"header_and_sample_cells":cells,"merges":grid.merges}),
@@ -428,7 +459,7 @@ fn reconcile(
             }
         }
     }
-    for cell in &grid.cells {
+    for cell in grid.cells.iter().filter(|c| c.has_content()) {
         if fragments
             .iter()
             .any(|t| t.data.contains(cell.row, cell.col))
@@ -623,13 +654,14 @@ pub fn analyze(
             .cells
             .iter()
             .filter(|c| {
-                tables
-                    .iter()
-                    .any(|t| t.page_id == page.id && classified(t, c.row, c.col))
+                c.has_content()
+                    && tables
+                        .iter()
+                        .any(|t| t.page_id == page.id && classified(t, c.row, c.col))
             })
             .map(|c| (c.row, c.col))
             .collect();
-        let uncovered = grid.cells.len() - covered.len();
+        let uncovered = grid.cells.iter().filter(|c| c.has_content()).count() - covered.len();
         let state = if chunks.is_empty() {
             "empty"
         } else if completed == 0 {
@@ -688,6 +720,43 @@ pub fn analyze(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rich_viewer_styles_do_not_inflate_the_model_context() {
+        let mut grid = Grid {
+            rows: 32,
+            cols: 10,
+            ..Default::default()
+        };
+        for row in 1..=32 {
+            for col in 1..=10 {
+                grid.cells.push(Cell {
+                    row,
+                    col,
+                    value: "123".into(),
+                    kind: CellKind::Number,
+                    style: CellStyle {
+                        font_name: Some("A very long installed font name".repeat(20)),
+                        number_format: Some("#,##0.00".into()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                });
+            }
+        }
+        let page = Page {
+            id: "s1".into(),
+            name: "Source".into(),
+            kind: PageKind::Sheet,
+            hidden: false,
+            grid: None,
+            blocks: vec![],
+        };
+        let text = prompt(&page, &grid, grid.bounds()).unwrap();
+        assert!(text.contains("123"));
+        assert!(!text.contains("A very long installed font name"));
+        assert!(text.len() < 60_000);
+    }
     #[test]
     fn source_merge_spans_recover_matrix_parent_levels_and_category_axis() {
         let doc = crate::ingest::read_document(std::path::Path::new(concat!(

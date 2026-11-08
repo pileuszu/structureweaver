@@ -1,16 +1,20 @@
 //! Excel adapter: typed cached values from calamine, geometry and style from OOXML.
 //! Every worksheet is included, including hidden and very-hidden sheets. Unsupported
 //! formats and resource limits are explicit errors, never silent clipping.
-use crate::domain::*;
+use crate::{
+    domain::*,
+    xlsx_styles::{self, Styles, Theme},
+};
 use anyhow::{Context, Result, bail, ensure};
 use calamine::{Data, Reader as ExcelReader, Xlsx, open_workbook};
 use quick_xml::{
-    Reader,
+    NsReader, Reader,
     events::{BytesStart, Event},
+    name::ResolveResult,
 };
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs::File,
     io::Read,
     path::Path,
@@ -38,13 +42,20 @@ pub fn read_document(path: &Path) -> Result<Document> {
 }
 
 #[derive(Default)]
+struct CellMeta {
+    style: Option<usize>,
+    raw_number: Option<f64>,
+}
+#[derive(Default)]
 struct SheetMeta {
-    cells: BTreeMap<(u32, u32), usize>,
+    cells: BTreeMap<(u32, u32), CellMeta>,
     merges: Vec<Bounds>,
     hidden_rows: Vec<u32>,
     hidden_cols: Vec<u32>,
     rows: u32,
     cols: u32,
+    layout: SheetLayout,
+    shared_string_ids: BTreeSet<u32>,
 }
 
 #[derive(Clone)]
@@ -205,153 +216,230 @@ fn relationships(xml: &str) -> Result<HashMap<String, RelationshipPart>> {
     }
     Ok(paths)
 }
-fn styles(xml: &str) -> Result<Vec<CellStyle>> {
-    let mut reader = Reader::from_str(xml);
-    let mut fonts = Vec::new();
-    let mut fills = Vec::new();
-    let mut result = Vec::new();
-    let mut in_fonts = false;
-    let mut in_font = false;
-    let mut bold = false;
-    let mut in_fills = false;
-    let mut in_fill = false;
-    let mut fill = None;
-    let mut in_xfs = false;
-    let mut current: Option<CellStyle> = None;
-    loop {
-        let event = reader.read_event()?;
-        let empty = matches!(&event, Event::Empty(_));
-        match event {
-            Event::Start(e) | Event::Empty(e) => {
-                let a = attributes(&e)?;
-                match local_name(e.name().as_ref()) {
-                    b"fonts" => in_fonts = true,
-                    b"font" if in_fonts => {
-                        in_font = !empty;
-                        bold = false;
-                        if empty {
-                            fonts.push(false);
-                        }
-                    }
-                    b"b" if in_font => bold = a.get("val").is_none_or(|v| v != "0" && v != "false"),
-                    b"fills" => in_fills = true,
-                    b"fill" if in_fills => {
-                        in_fill = !empty;
-                        fill = None;
-                        if empty {
-                            fills.push(None);
-                        }
-                    }
-                    b"fgColor" if in_fill => {
-                        fill = a
-                            .get("rgb")
-                            .cloned()
-                            .or_else(|| a.get("indexed").map(|v| format!("indexed:{v}")))
-                            .or_else(|| a.get("theme").map(|v| format!("theme:{v}")))
-                    }
-                    b"cellXfs" => in_xfs = true,
-                    b"xf" if in_xfs => {
-                        if let Some(style) = current.take() {
-                            result.push(style);
-                        }
-                        let font_id = a
-                            .get("fontId")
-                            .and_then(|v| v.parse::<usize>().ok())
-                            .unwrap_or(0);
-                        let fill_id = a
-                            .get("fillId")
-                            .and_then(|v| v.parse::<usize>().ok())
-                            .unwrap_or(0);
-                        current = Some(CellStyle {
-                            bold: fonts.get(font_id).copied().unwrap_or(false),
-                            indent: 0,
-                            fill: fills.get(fill_id).cloned().flatten(),
-                        });
-                    }
-                    b"alignment" if in_xfs => {
-                        if let Some(style) = current.as_mut() {
-                            style.indent =
-                                a.get("indent").map(|v| v.parse()).transpose()?.unwrap_or(0);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Event::End(e) => match local_name(e.name().as_ref()) {
-                b"font" if in_font => {
-                    fonts.push(bold);
-                    in_font = false;
-                }
-                b"fonts" => in_fonts = false,
-                b"fill" if in_fill => {
-                    fills.push(fill.take());
-                    in_fill = false;
-                }
-                b"fills" => in_fills = false,
-                b"cellXfs" => {
-                    if let Some(style) = current.take() {
-                        result.push(style);
-                    }
-                    in_xfs = false;
-                }
-                _ => {}
-            },
-            Event::Eof => break,
-            _ => {}
-        }
-    }
-    Ok(result)
+fn style_at(styles: &Styles, index: usize) -> CellStyle {
+    styles
+        .cells
+        .get(index)
+        .cloned()
+        .unwrap_or_else(|| styles.default_style.clone())
 }
-fn sheet_metadata(xml: &str) -> Result<SheetMeta> {
-    let mut reader = Reader::from_str(xml);
+fn decimal(attrs: &HashMap<String, String>, key: &str) -> Option<f32> {
+    attrs
+        .get(key)
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|v| v.is_finite() && *v >= 0.0)
+}
+fn sheet_metadata(xml: &str, styles: &Styles, date1904: bool) -> Result<SheetMeta> {
+    let mut reader = NsReader::from_str(xml);
     let mut meta = SheetMeta::default();
+    meta.layout.default_style = styles.default_style.clone();
+    meta.layout.date1904 = date1904;
+    let mut current_cell = None;
+    let mut cell_type = String::new();
+    let mut in_value = false;
+    let mut unsupported = BTreeSet::new();
+    // DrawingML and extension parts reuse names such as col, row, c and v.
+    // Only SpreadsheetML elements at their worksheet schema locations are cells.
+    let mut path: Vec<(String, bool)> = Vec::new();
     loop {
-        match reader.read_event()? {
-            Event::Start(e) | Event::Empty(e) => {
+        let (namespace, event) = reader.read_resolved_event()?;
+        let spreadsheet = match namespace {
+            ResolveResult::Bound(namespace) => matches!(
+                namespace.as_ref(),
+                b"http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+                    | b"http://purl.oclc.org/ooxml/spreadsheetml/main"
+            ),
+            ResolveResult::Unbound => true,
+            ResolveResult::Unknown(_) => false,
+        };
+        let empty = matches!(&event, Event::Empty(_));
+        let opening = if let Event::Start(element) = &event {
+            Some((
+                std::str::from_utf8(local_name(element.name().as_ref()))?.to_owned(),
+                spreadsheet,
+            ))
+        } else {
+            None
+        };
+        let at = |parents: &[&str]| {
+            path.len() == parents.len()
+                && path
+                    .iter()
+                    .zip(parents)
+                    .all(|((name, valid), expected)| *valid && name == expected)
+        };
+        match event {
+            Event::Start(e) | Event::Empty(e) if spreadsheet => {
                 let a = attributes(&e)?;
                 match local_name(e.name().as_ref()) {
-                    b"c" => {
-                        let (row, col) =
+                    b"c" if at(&["worksheet", "sheetData", "row"]) => {
+                        let position =
                             coordinate(a.get("r").context("Cell without explicit coordinate")?)?;
-                        let style = a
-                            .get("s")
-                            .map(|s| s.parse::<usize>())
-                            .transpose()?
-                            .unwrap_or(0);
-                        meta.cells.insert((row, col), style);
-                        meta.rows = meta.rows.max(row);
-                        meta.cols = meta.cols.max(col);
+                        let style = a.get("s").map(|s| s.parse::<usize>()).transpose()?;
+                        meta.cells.insert(
+                            position,
+                            CellMeta {
+                                style,
+                                raw_number: None,
+                            },
+                        );
+                        meta.rows = meta.rows.max(position.0);
+                        meta.cols = meta.cols.max(position.1);
+                        current_cell = (!empty).then_some(position);
+                        cell_type = a.get("t").cloned().unwrap_or_default();
                     }
-                    b"mergeCell" => {
+                    b"v" if current_cell.is_some()
+                        && at(&["worksheet", "sheetData", "row", "c"]) =>
+                    {
+                        in_value = !empty
+                    }
+                    b"r" if current_cell.is_some() => {
+                        unsupported.insert("셀 내부의 혼합 글꼴".to_owned());
+                    }
+                    b"mergeCell" if at(&["worksheet", "mergeCells"]) => {
                         let bounds = cell_bounds(a.get("ref").context("Merge without range")?)?;
                         meta.rows = meta.rows.max(bounds.bottom);
                         meta.cols = meta.cols.max(bounds.right);
                         meta.merges.push(bounds);
                     }
-                    b"row" if truth(a.get("hidden")) => {
+                    b"sheetFormatPr" if at(&["worksheet"]) => {
+                        if let Some(value) = decimal(&a, "defaultRowHeight") {
+                            meta.layout.default_row_height = value;
+                        }
+                        if let Some(value) = decimal(&a, "defaultColWidth") {
+                            meta.layout.default_col_width = value;
+                        }
+                        if truth(a.get("zeroHeight")) {
+                            unsupported.insert("기본 숨김 행 설정".to_owned());
+                        }
+                    }
+                    b"sheetView" if at(&["worksheet", "sheetViews"]) => {
+                        if a.contains_key("showGridLines") {
+                            meta.layout.show_grid_lines = truth(a.get("showGridLines"));
+                        }
+                        if let Some(value) = decimal(&a, "zoomScale") {
+                            meta.layout.zoom_scale = value.clamp(10.0, 400.0);
+                        }
+                        if truth(a.get("rightToLeft")) {
+                            unsupported.insert("오른쪽에서 왼쪽으로 시트 배치".to_owned());
+                        }
+                        if a.get("view").is_some_and(|v| v != "normal") {
+                            unsupported.insert("페이지 레이아웃 보기".to_owned());
+                        }
+                    }
+                    b"pane" if at(&["worksheet", "sheetViews", "sheetView"]) => {
+                        if a.get("state")
+                            .is_some_and(|v| v == "frozen" || v == "frozenSplit")
+                        {
+                            meta.layout.freeze_rows = decimal(&a, "ySplit").unwrap_or(0.0) as u32;
+                            meta.layout.freeze_cols = decimal(&a, "xSplit").unwrap_or(0.0) as u32;
+                        } else if a.contains_key("xSplit") || a.contains_key("ySplit") {
+                            unsupported.insert("분할 창".to_owned());
+                        }
+                    }
+                    b"row" if at(&["worksheet", "sheetData"]) => {
                         let row = number(&a, "r")?;
                         ensure!(
                             (1..=1_048_576).contains(&row),
-                            "Hidden row is outside Excel bounds"
+                            "Row is outside Excel bounds"
                         );
-                        meta.hidden_rows.push(row);
+                        if truth(a.get("hidden")) {
+                            meta.hidden_rows.push(row);
+                        }
+                        if let Some(value) = decimal(&a, "ht") {
+                            meta.layout.row_heights.insert(row, value);
+                        }
+                        if let Some(style) = a.get("s").map(|v| v.parse::<usize>()).transpose()?
+                            && a.get("customFormat")
+                                .is_none_or(|v| v != "0" && v != "false")
+                        {
+                            meta.layout.row_styles.insert(row, style_at(styles, style));
+                        }
                     }
-                    b"col" if truth(a.get("hidden")) => {
+                    b"col" if at(&["worksheet", "cols"]) => {
                         let min = number(&a, "min")?;
                         let max = number(&a, "max")?;
                         ensure!(
                             min > 0 && min <= max && max <= 16_384,
-                            "Hidden columns are outside Excel bounds"
+                            "Columns are outside Excel bounds"
                         );
-                        meta.hidden_cols.extend(min..=max);
+                        if truth(a.get("hidden")) {
+                            meta.hidden_cols.extend(min..=max);
+                        }
+                        if let Some(value) = decimal(&a, "width") {
+                            for col in min..=max {
+                                meta.layout.column_widths.insert(col, value);
+                            }
+                        }
+                        if let Some(style) =
+                            a.get("style").map(|v| v.parse::<usize>()).transpose()?
+                        {
+                            for col in min..=max {
+                                meta.layout
+                                    .column_styles
+                                    .insert(col, style_at(styles, style));
+                            }
+                        }
+                    }
+                    b"conditionalFormatting" => {
+                        unsupported.insert("조건부 서식".to_owned());
+                    }
+                    b"drawing" | b"legacyDrawing" | b"legacyDrawingHF" | b"picture" => {
+                        unsupported.insert("그림·차트·도형".to_owned());
+                    }
+                    b"tableParts" => {
+                        unsupported.insert("Excel 표의 자동 스타일".to_owned());
                     }
                     _ => {}
                 }
             }
+            Event::Start(e) | Event::Empty(e) => match local_name(e.name().as_ref()) {
+                b"conditionalFormatting" | b"dataBar" | b"colorScale" | b"iconSet" => {
+                    unsupported.insert("조건부 서식".to_owned());
+                }
+                b"drawing" | b"sp" | b"graphicFrame" | b"pic" | b"twoCellAnchor"
+                | b"oneCellAnchor" | b"absoluteAnchor" => {
+                    unsupported.insert("그림·차트·도형".to_owned());
+                }
+                _ => {}
+            },
+            Event::Text(text) if in_value => {
+                if let Some(position) = current_cell {
+                    let raw = quick_xml::escape::unescape(std::str::from_utf8(text.as_ref())?)?;
+                    if cell_type.is_empty() || cell_type == "n" {
+                        meta.cells
+                            .get_mut(&position)
+                            .context("Missing current cell")?
+                            .raw_number = raw.parse::<f64>().ok().filter(|v| v.is_finite());
+                    } else if cell_type == "s"
+                        && let Ok(index) = raw.parse::<u32>()
+                    {
+                        meta.shared_string_ids.insert(index);
+                    }
+                }
+            }
+            Event::End(e) => {
+                match local_name(e.name().as_ref()) {
+                    b"c" if spreadsheet && at(&["worksheet", "sheetData", "row", "c"]) => {
+                        current_cell = None;
+                        in_value = false;
+                    }
+                    b"v" if spreadsheet && at(&["worksheet", "sheetData", "row", "c", "v"]) => {
+                        in_value = false
+                    }
+                    _ => {}
+                }
+                path.pop();
+            }
             Event::Eof => break,
             _ => {}
         }
+        if let Some(element) = opening {
+            ensure!(path.len() < 128, "Worksheet XML nesting limit exceeded");
+            path.push(element);
+        }
     }
+    meta.layout.unsupported_features = unsupported.into_iter().collect();
     meta.hidden_rows.sort_unstable();
     meta.hidden_rows.dedup();
     meta.hidden_cols.sort_unstable();
@@ -363,6 +451,42 @@ fn sheet_metadata(xml: &str) -> Result<SheetMeta> {
         meta.cols
     );
     Ok(meta)
+}
+fn rich_shared_strings(xml: &str) -> Result<BTreeSet<u32>> {
+    let mut reader = Reader::from_str(xml);
+    let mut current = 0u32;
+    let mut inside = false;
+    let mut rich = BTreeSet::new();
+    loop {
+        match reader.read_event()? {
+            Event::Start(e) if local_name(e.name().as_ref()) == b"si" => inside = true,
+            Event::Empty(e) if local_name(e.name().as_ref()) == b"si" => current += 1,
+            Event::Start(e) | Event::Empty(e)
+                if local_name(e.name().as_ref()) == b"r" && inside =>
+            {
+                rich.insert(current);
+            }
+            Event::End(e) if local_name(e.name().as_ref()) == b"si" => {
+                inside = false;
+                current += 1;
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(rich)
+}
+fn uses_1904_dates(xml: &str) -> Result<bool> {
+    let mut reader = Reader::from_str(xml);
+    loop {
+        match reader.read_event()? {
+            Event::Start(e) | Event::Empty(e) if local_name(e.name().as_ref()) == b"workbookPr" => {
+                return Ok(truth(attributes(&e)?.get("date1904")));
+            }
+            Event::Eof => return Ok(false),
+            _ => {}
+        }
+    }
 }
 fn typed_value(value: &Data) -> (String, CellKind) {
     match value {
@@ -418,7 +542,9 @@ impl DocumentAdapter for ExcelAdapter {
             expanded <= MAX_EXPANDED_BYTES,
             "Workbook expands beyond the 256 MiB MVP resource limit"
         );
-        let sheets = sheet_inventory(&xml_entry(&mut zip, "xl/workbook.xml")?)?;
+        let workbook_xml = xml_entry(&mut zip, "xl/workbook.xml")?;
+        let sheets = sheet_inventory(&workbook_xml)?;
+        let date1904 = uses_1904_dates(&workbook_xml)?;
         let relationships = relationships(&xml_entry(&mut zip, "xl/_rels/workbook.xml.rels")?)?;
         // calamine expects these two standard part names. Reject unusual layouts rather
         // than silently decode dates as numbers or lose shared strings.
@@ -438,10 +564,21 @@ impl DocumentAdapter for ExcelAdapter {
                 );
             }
         }
-        let style_data = if zip.index_for_name("xl/styles.xml").is_some() {
-            styles(&xml_entry(&mut zip, "xl/styles.xml")?)?
+        let theme = if let Some(part) = relationships.values().find(|p| p.kind.ends_with("/theme"))
+        {
+            Theme::from_xml(&xml_entry(&mut zip, &part.path)?)?
         } else {
-            vec![CellStyle::default()]
+            Theme::default()
+        };
+        let style_data = if zip.index_for_name("xl/styles.xml").is_some() {
+            xlsx_styles::styles(&xml_entry(&mut zip, "xl/styles.xml")?, &theme)?
+        } else {
+            Styles::default()
+        };
+        let rich_strings = if zip.index_for_name("xl/sharedStrings.xml").is_some() {
+            rich_shared_strings(&xml_entry(&mut zip, "xl/sharedStrings.xml")?)?
+        } else {
+            BTreeSet::new()
         };
         let mut metadata = Vec::new();
         for sheet in &sheets {
@@ -453,10 +590,20 @@ impl DocumentAdapter for ExcelAdapter {
                 metadata.push(None);
                 continue;
             }
-            metadata.push(Some(
-                sheet_metadata(&xml_entry(&mut zip, &part.path)?)
-                    .with_context(|| format!("Worksheet {}", sheet.name))?,
-            ));
+            let mut meta = sheet_metadata(&xml_entry(&mut zip, &part.path)?, &style_data, date1904)
+                .with_context(|| format!("Worksheet {}", sheet.name))?;
+            if !meta.shared_string_ids.is_disjoint(&rich_strings)
+                && !meta
+                    .layout
+                    .unsupported_features
+                    .iter()
+                    .any(|v| v == "셀 내부의 혼합 글꼴")
+            {
+                meta.layout
+                    .unsupported_features
+                    .push("셀 내부의 혼합 글꼴".into());
+            }
+            metadata.push(Some(meta));
         }
         drop(zip);
         let mut workbook: Xlsx<_> = open_workbook(path).context("Cannot decode Excel workbook")?;
@@ -464,7 +611,7 @@ impl DocumentAdapter for ExcelAdapter {
         let mut warnings = vec!["Formula values are Excel's saved cached results; formulas are preserved but are not recalculated.".to_owned()];
         for (index, (sheet, metadata)) in sheets.iter().zip(metadata).enumerate() {
             let page_id = format!("sheet-{}", index + 1);
-            let Some(meta) = metadata else {
+            let Some(mut meta) = metadata else {
                 warnings.push(format!("{} is a non-worksheet sheet (for example a chart sheet); it is listed without a cell grid.", sheet.name));
                 pages.push(Page {
                     id: page_id,
@@ -484,7 +631,7 @@ impl DocumentAdapter for ExcelAdapter {
                 .with_context(|| format!("Read formulas in {}", sheet.name))?;
             let mut cells = Vec::new();
             let mut missing_formula_cache = 0usize;
-            for ((row, col), style_index) in meta.cells {
+            for ((row, col), cell_meta) in meta.cells {
                 let position = (row - 1, col - 1);
                 let data = values.get_value(position).unwrap_or(&Data::Empty);
                 let (value, kind) = typed_value(data);
@@ -495,14 +642,38 @@ impl DocumentAdapter for ExcelAdapter {
                 if formula.is_some() && kind == CellKind::Empty {
                     missing_formula_cache += 1;
                 }
-                cells.push(Cell {
+                let style = cell_meta
+                    .style
+                    .map(|index| style_at(&style_data, index))
+                    .or_else(|| meta.layout.row_styles.get(&row).cloned())
+                    .or_else(|| meta.layout.column_styles.get(&col).cloned())
+                    .unwrap_or_else(|| meta.layout.default_style.clone());
+                if style.fill_pattern == "gradient"
+                    && !meta
+                        .layout
+                        .unsupported_features
+                        .iter()
+                        .any(|s| s == "그라데이션 채우기")
+                {
+                    meta.layout
+                        .unsupported_features
+                        .push("그라데이션 채우기".into());
+                }
+                let mut cell = Cell {
                     row,
                     col,
                     value,
                     kind,
                     formula,
-                    style: style_data.get(style_index).cloned().unwrap_or_default(),
-                });
+                    style,
+                    raw_number: cell_meta.raw_number,
+                    display_value: None,
+                };
+                cell.display_value = Some(crate::number_format::display_value(
+                    &cell,
+                    meta.layout.date1904,
+                ));
+                cells.push(cell);
             }
             if missing_formula_cache > 0 {
                 warnings.push(format!("{} has {missing_formula_cache} formulas without saved values; these cells remain unresolved.", sheet.name));
@@ -519,6 +690,7 @@ impl DocumentAdapter for ExcelAdapter {
                     merges: meta.merges,
                     hidden_rows: meta.hidden_rows,
                     hidden_cols: meta.hidden_cols,
+                    layout: meta.layout,
                 }),
                 blocks: vec![],
             });
