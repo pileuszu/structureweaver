@@ -123,6 +123,12 @@ pub struct ChartAxis {
     pub number_format: String,
     pub major_gridlines: bool,
     pub hidden: bool,
+    /// Saved DrawingML text rotation in degrees, not an automatic-layout hint.
+    pub label_rotation: Option<f32>,
+    pub label_font_size: Option<f32>,
+    pub label_skip: Option<usize>,
+    pub label_offset: Option<f32>,
+    pub label_position: String,
 }
 /// Office stores layout coordinates as fractions of the complete chart rectangle.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +213,7 @@ pub struct Chart {
     pub legend_layout: Option<ChartLayout>,
     pub title_overlay: bool,
     pub legend_overlay: bool,
+    pub legend_font_size: Option<f32>,
 }
 impl Default for Chart {
     fn default() -> Self {
@@ -233,6 +240,7 @@ impl Default for Chart {
             legend_layout: None,
             title_overlay: false,
             legend_overlay: false,
+            legend_font_size: None,
         }
     }
 }
@@ -431,6 +439,19 @@ fn manual_layout(node: Option<&Node>) -> Option<ChartLayout> {
     })
 }
 
+fn text_size(node: Option<&Node>) -> Option<f32> {
+    let mut properties = vec![];
+    let node = node?;
+    descendants(node, "defRPr", &mut properties);
+    descendants(node, "rPr", &mut properties);
+    properties.iter().find_map(|n| {
+        n.attr("sz")
+            .and_then(|s| s.parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+            .map(|v| (v / 100.0).clamp(1.0, 200.0))
+    })
+}
+
 pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
     let root = parse(xml)?;
     let c = root
@@ -461,6 +482,8 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
         legend_layout: manual_layout(c.child("legend")),
         title_overlay: c.child("title").is_some_and(|n| enabled(n, "overlay")),
         legend_overlay: c.child("legend").is_some_and(|n| enabled(n, "overlay")),
+        legend_font_size: text_size(c.child("legend").and_then(|n| n.child("txPr")))
+            .or_else(|| text_size(root.child("txPr"))),
         ..Default::default()
     };
     chart.style_id = num(&root, "style").map(|v| v as u32);
@@ -539,6 +562,18 @@ pub(crate) fn parse_chart(xml: &str, theme: &Theme) -> Result<Chart> {
                     .into(),
                 major_gridlines: n.child("majorGridlines").is_some(),
                 hidden: enabled(n, "delete"),
+                label_rotation: n
+                    .child("txPr")
+                    .and_then(|n| n.child("bodyPr"))
+                    .and_then(|n| n.attr("rot"))
+                    .and_then(|v| v.parse::<f32>().ok())
+                    .filter(|v| v.is_finite())
+                    .map(|v| (v / 60000.0).clamp(-90.0, 90.0)),
+                label_font_size: text_size(n.child("txPr"))
+                    .or_else(|| text_size(root.child("txPr"))),
+                label_skip: num(n, "tickLblSkip").map(|v| v.clamp(1.0, MAX_POINTS as f64) as usize),
+                label_offset: num(n, "lblOffset").map(|v| v.clamp(0.0, 1000.0) as f32),
+                label_position: val(n, "tickLblPos").unwrap_or("nextTo").into(),
             });
             continue;
         }
@@ -1274,57 +1309,390 @@ fn group_scales(chart: &Chart) -> Vec<Scale> {
         })
         .collect()
 }
+fn axis_font(axis: Option<&ChartAxis>, z: f32) -> f32 {
+    axis.and_then(|a| a.label_font_size)
+        .filter(|v| v.is_finite())
+        .unwrap_or(9.0)
+        .clamp(1.0, 200.0)
+        * z
+}
+fn labels_visible(axis: Option<&ChartAxis>) -> bool {
+    !axis.is_some_and(|a| a.hidden || a.label_position == "none")
+}
+fn label_gap(axis: Option<&ChartAxis>, z: f32) -> f32 {
+    6.0 * z
+        * axis
+            .and_then(|a| a.label_offset)
+            .filter(|v| v.is_finite())
+            .unwrap_or(100.0)
+            .clamp(0.0, 1000.0)
+        / 100.0
+}
+fn category_indices(chart: &Chart) -> Vec<usize> {
+    let full_count = chart
+        .groups
+        .iter()
+        .flat_map(|g| &g.series)
+        .map(|s| s.values.len().max(s.categories.len()))
+        .max()
+        .unwrap_or(1)
+        .min(MAX_POINTS);
+    (0..full_count)
+        .filter(|i| {
+            chart
+                .groups
+                .iter()
+                .flat_map(|g| &g.series)
+                .any(|s| *i < s.values.len() && !hidden(s, *i))
+        })
+        .collect()
+}
+fn category_names(group: &ChartGroup, indices: &[usize]) -> Vec<String> {
+    indices
+        .iter()
+        .map(|&i| {
+            group
+                .series
+                .iter()
+                .map(|s| s.categories.label(i))
+                .find(|v| !v.is_empty())
+                .unwrap_or_else(|| (i + 1).to_string())
+        })
+        .collect()
+}
+fn rotated_bounds(size: Vec2, angle: f32) -> Rect {
+    let rotation = egui::emath::Rot2::from_angle(angle);
+    let mut bounds = Rect::NOTHING;
+    for point in [
+        Vec2::ZERO,
+        Vec2::new(size.x, 0.0),
+        size,
+        Vec2::new(0.0, size.y),
+    ] {
+        bounds.extend_with(Pos2::ZERO + rotation * point);
+    }
+    bounds
+}
+struct CategoryLayout {
+    galleys: Vec<std::sync::Arc<egui::Galley>>,
+    angle: f32,
+    stride: usize,
+    extent: Vec2,
+}
+/// Saved rotation/interval always wins. Automatic labels first wrap short word
+/// groups; long labels rotate before an interval is increased. Both reservation
+/// and painting use the same measured, rotated glyph bounds.
+fn category_layout(
+    p: &egui::Painter,
+    names: &[String],
+    axis: Option<&ChartAxis>,
+    vertical: bool,
+    length: f32,
+    cross_limit: f32,
+    z: f32,
+) -> CategoryLayout {
+    let font_size = axis_font(axis, z);
+    let font = FontId::proportional(font_size);
+    let ink = Color32::from_gray(64);
+    let count = names.len().max(1);
+    let length = length.max(1.0);
+    let cross_limit = cross_limit.max(font_size * 1.5);
+    let explicit_stride = axis
+        .and_then(|a| a.label_skip)
+        .map(|s| s.clamp(1, MAX_POINTS));
+    let slot = length / count as f32 * explicit_stride.unwrap_or(1) as f32;
+    let explicit_angle = axis
+        .and_then(|a| a.label_rotation)
+        .filter(|v| v.is_finite())
+        .map(|v| v.clamp(-90.0, 90.0).to_radians());
+    let mut angle = explicit_angle.unwrap_or(0.0);
+    let mut galleys: Vec<_> = names
+        .iter()
+        .map(|s| p.layout_no_wrap(s.clone(), font.clone(), ink))
+        .collect();
+    let longest = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max);
+    if vertical {
+        galleys = names
+            .iter()
+            .map(|s| p.layout(s.clone(), font.clone(), ink, cross_limit))
+            .collect();
+    } else if explicit_angle.is_none() && longest + 6.0 * z > slot {
+        let wrapped: Vec<_> = names
+            .iter()
+            .map(|s| {
+                p.layout(
+                    s.clone(),
+                    font.clone(),
+                    ink,
+                    (slot - 5.0 * z).max(font_size * 2.0),
+                )
+            })
+            .collect();
+        let wrap_height = wrapped.iter().map(|g| g.size().y).fold(0.0, f32::max);
+        if names.iter().all(|s| s.split_whitespace().count() > 1)
+            && wrap_height <= (font_size * 3.6).min(cross_limit)
+        {
+            galleys = wrapped;
+        } else {
+            angle = -std::f32::consts::FRAC_PI_4;
+        }
+    }
+    // A stored rotation can require more room than an automatic one. Do not
+    // rewrite or truncate the label text to force it into a fixed 20-point band.
+    let extent = galleys
+        .iter()
+        .map(|g| rotated_bounds(g.size(), angle).size())
+        .fold(Vec2::ZERO, |a, b| a.max(b));
+    // Parallel diagonal labels may have overlapping screen-aligned bounds while
+    // their glyph rectangles are separate. Use the two rotated rectangle axes:
+    // translation separates the labels as soon as either projection exceeds
+    // the corresponding side. AABB extent remains correct for canvas margins.
+    let size = galleys.iter().map(|g| g.size()).fold(Vec2::ZERO, Vec2::max);
+    let (sin, cos) = angle.sin_cos();
+    let (along_width, along_height) = if vertical {
+        (sin.abs(), cos.abs())
+    } else {
+        (cos.abs(), sin.abs())
+    };
+    let separation = |side: f32, projection: f32| {
+        if projection > 1e-4 {
+            (side + 5.0 * z) / projection
+        } else {
+            f32::INFINITY
+        }
+    };
+    let along = separation(size.x, along_width).min(separation(size.y, along_height));
+    let stride = explicit_stride
+        .unwrap_or_else(|| (along / (length / count as f32)).ceil().max(1.0) as usize)
+        .min(count)
+        .max(1);
+    CategoryLayout {
+        galleys,
+        angle,
+        stride,
+        extent,
+    }
+}
+fn category_anchor(bounds: Rect, angle: f32, vertical: bool) -> Pos2 {
+    if vertical {
+        bounds.right_center()
+    } else if angle < -0.001 {
+        bounds.right_top()
+    } else if angle > 0.001 {
+        bounds.left_top()
+    } else {
+        bounds.center_top()
+    }
+}
+fn paint_category_label(
+    p: &egui::Painter,
+    position: Pos2,
+    galley: std::sync::Arc<egui::Galley>,
+    angle: f32,
+    vertical: bool,
+) {
+    let bounds = rotated_bounds(galley.size(), angle);
+    let anchor = category_anchor(bounds, angle, vertical);
+    p.add(
+        egui::epaint::TextShape::new(position - anchor.to_vec2(), galley, Color32::from_gray(64))
+            .with_angle(angle),
+    );
+}
 fn auto_plot_rect(p: &egui::Painter, content: Rect, chart: &Chart, z: f32) -> Rect {
     let Some(g) = chart.groups.first() else {
         return content;
     };
     let axis = value_axis(chart, g);
+    let cat_axis = category_axis(chart, g);
     let scales = group_scales(chart);
-    let tick_width = ticks(scales[0], axis)
-        .iter()
-        .map(|v| {
-            measured(
+    let tick_width = if !labels_visible(axis) {
+        0.0
+    } else {
+        ticks(scales[0], axis)
+            .iter()
+            .map(|v| {
+                measured(
+                    p,
+                    &format_value(
+                        *v,
+                        axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
+                    ),
+                    axis_font(axis, z),
+                )
+                .x
+            })
+            .fold(0.0, f32::max)
+    };
+    let names = category_names(g, &category_indices(chart));
+    let numeric = matches!(g.kind.as_str(), "scatter" | "bubble");
+    let vertical_title = if g.horizontal { cat_axis } else { axis }
+        .is_some_and(|a| !a.hidden && !a.title.is_empty());
+    let horizontal_title = if g.horizontal { axis } else { cat_axis }
+        .is_some_and(|a| !a.hidden && !a.title.is_empty());
+    let title_left = if vertical_title { 17.0 * z } else { 0.0 };
+    let title_bottom = if horizontal_title { 18.0 * z } else { 0.0 };
+    let mut left = if g.horizontal { 0.0 } else { tick_width } + 9.0 * z + title_left;
+    let mut right = 12.0 * z;
+    let bottom_axis = if g.horizontal { axis } else { cat_axis };
+    let mut bottom = if labels_visible(bottom_axis) {
+        axis_font(bottom_axis, z) * 1.4
+    } else {
+        0.0
+    } + 6.0 * z
+        + title_bottom;
+    if !numeric && labels_visible(cat_axis) {
+        if g.horizontal {
+            let labels = category_layout(
                 p,
-                &format_value(
-                    *v,
-                    axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
-                ),
-                9.0 * z,
-            )
-            .x
-        })
-        .fold(0.0, f32::max);
-    let cat_width = g
-        .series
-        .iter()
-        .flat_map(|s| (0..s.categories.len()).map(move |i| s.categories.label(i)))
-        .map(|v| measured(p, &v, 9.0 * z).x)
-        .fold(0.0, f32::max);
-    let left = if g.horizontal { cat_width } else { tick_width }
-        + 9.0 * z
-        + if (if g.horizontal {
-            category_axis(chart, g)
+                &names,
+                cat_axis,
+                true,
+                (content.height() - bottom - 8.0 * z).max(1.0),
+                content.width() * 0.32,
+                z,
+            );
+            left = labels.extent.x + label_gap(cat_axis, z) + title_left;
         } else {
-            axis
-        })
-        .is_some_and(|a| !a.title.is_empty())
-        {
-            17.0 * z
-        } else {
-            0.0
-        };
-    let bottom = 20.0 * z
-        + if category_axis(chart, g).is_some_and(|a| !a.title.is_empty())
-            || g.horizontal && axis.is_some_and(|a| !a.title.is_empty())
-        {
-            18.0 * z
-        } else {
-            0.0
-        };
+            // A diagonal label is anchored by the end nearest its tick. Reserve
+            // the first/last overhang as well as height, so text stays inside the
+            // chart instead of being clipped by its object rectangle.
+            let base_left = left;
+            for _ in 0..3 {
+                let length = (content.width()
+                    - left.min(content.width() * 0.42)
+                    - right.min(content.width() * 0.35))
+                .max(1.0);
+                let labels = category_layout(
+                    p,
+                    &names,
+                    cat_axis,
+                    false,
+                    length,
+                    content.height() * 0.40,
+                    z,
+                );
+                bottom = labels.extent.y + label_gap(cat_axis, z) + title_bottom;
+                let count = labels.galleys.len();
+                if count == 0 {
+                    break;
+                }
+                let mut required_left = base_left;
+                let mut required_right = 12.0 * z;
+                for index in [0, (count - 1) / labels.stride * labels.stride] {
+                    let mut t = (index as f32 + 0.5) / count as f32;
+                    if cat_axis.is_some_and(|a| a.reversed) {
+                        t = 1.0 - t;
+                    }
+                    let bounds = rotated_bounds(labels.galleys[index].size(), labels.angle);
+                    let anchor = category_anchor(bounds, labels.angle, false);
+                    required_left =
+                        required_left.max(-(t * length + bounds.left() - anchor.x) + 2.0 * z);
+                    required_right = required_right
+                        .max(t * length + bounds.right() - anchor.x - length + 2.0 * z);
+                }
+                left = required_left.min(content.width() * 0.42);
+                right = required_right.min(content.width() * 0.35);
+            }
+        }
+    }
     Rect::from_min_max(
-        content.min + Vec2::new(left.max(20.0 * z).min(content.width() * 0.38), 8.0 * z),
-        content.max - Vec2::new(12.0 * z, bottom.min(content.height() * 0.35)),
+        content.min + Vec2::new(left.max(12.0 * z).min(content.width() * 0.42), 8.0 * z),
+        content.max - Vec2::new(right, bottom.min(content.height() * 0.60)),
     )
+}
+
+struct LegendLayout {
+    slots: Vec<Rect>,
+    galleys: Vec<std::sync::Arc<egui::Galley>>,
+    size: Vec2,
+}
+fn legend_layout(
+    p: &egui::Painter,
+    entries: &[(String, Color32)],
+    available: Vec2,
+    horizontal: bool,
+    font_size: f32,
+    z: f32,
+) -> LegendLayout {
+    let available = available.max(Vec2::splat(1.0));
+    let font = FontId::proportional(font_size);
+    let key = 15.0 * z;
+    let gap = 6.0 * z;
+    let natural: Vec<_> = entries
+        .iter()
+        .map(|(s, _)| measured(p, s, font_size).x + key + gap)
+        .collect();
+    let candidate = |columns: usize| {
+        let col_width = natural
+            .iter()
+            .copied()
+            .fold(0.0, f32::max)
+            .min(available.x / columns as f32)
+            .max(1.0);
+        let mut slots = vec![];
+        let mut galleys = vec![];
+        let mut x = 0.0;
+        let mut y = 0.0;
+        let mut row_height: f32 = 0.0;
+        let mut size = Vec2::ZERO;
+        for ((name, _), width) in entries.iter().zip(&natural) {
+            let width = if horizontal {
+                width.min(available.x)
+            } else {
+                col_width
+            };
+            let galley = p.layout(
+                name.clone(),
+                font.clone(),
+                Color32::from_gray(64),
+                (width - key - gap).max(1.0),
+            );
+            let height = galley.size().y.max(8.0 * z) + gap;
+            if horizontal {
+                if x > 0.0 && x + width > available.x + 0.1 {
+                    x = 0.0;
+                    y += row_height;
+                    row_height = 0.0;
+                }
+            } else if y > 0.0 && y + height > available.y + 0.1 {
+                x += col_width;
+                y = 0.0;
+            }
+            slots.push(Rect::from_min_size(
+                Pos2::new(x, y),
+                Vec2::new(width, height),
+            ));
+            size = size.max(Vec2::new(x + width, y + height));
+            galleys.push(galley);
+            if horizontal {
+                x += width;
+                row_height = row_height.max(height);
+            } else {
+                y += height;
+            }
+        }
+        LegendLayout {
+            slots,
+            galleys,
+            size,
+        }
+    };
+    let mut best = candidate(1);
+    if !horizontal {
+        for columns in 2..=entries.len().clamp(1, 8) {
+            if best.size.x <= available.x + 0.1 && best.size.y <= available.y + 0.1 {
+                break;
+            }
+            let next = candidate(columns);
+            let overflow = |plan: &LegendLayout| {
+                (plan.size.x / available.x).max(1.0) * (plan.size.y / available.y).max(1.0)
+            };
+            if overflow(&next) < overflow(&best) {
+                best = next;
+            }
+        }
+    }
+    best
 }
 fn chart_content(p: &egui::Painter, rect: Rect, chart: &Chart, z: f32, ink: Color32) -> Rect {
     let mut content = rect.shrink(12.0 * z);
@@ -1391,51 +1759,19 @@ fn chart_content(p: &egui::Painter, rect: Rect, chart: &Chart, z: f32, ink: Colo
         return content;
     }
     let horizontal = matches!(position.as_str(), "b" | "t");
-    let row_height = measured(p, "Ag", 9.0 * z).y + 6.0 * z;
-    let widths: Vec<_> = entries
-        .iter()
-        .map(|(name, _)| measured(p, name, 9.0 * z).x + 24.0 * z)
-        .collect();
-    let max_width = widths
-        .iter()
-        .copied()
-        .fold(0.0, f32::max)
-        .min(content.width() * 0.42);
-    let mut slots = vec![];
-    let size = if horizontal {
-        let mut x = 0.0;
-        let mut y = 0.0;
-        let mut row_width: f32 = 0.0;
-        for width in &widths {
-            let width = width.min(content.width());
-            if x > 0.0 && x + width > content.width() {
-                x = 0.0;
-                y += row_height;
-            }
-            slots.push(Rect::from_min_size(
-                Pos2::new(x, y),
-                Vec2::new(width, row_height),
-            ));
-            x += width;
-            row_width = row_width.max(x);
-        }
-        Vec2::new(row_width, (y + row_height).min(content.height() * 0.4))
+    let font_size = chart
+        .legend_font_size
+        .filter(|v| v.is_finite())
+        .unwrap_or(9.0)
+        .clamp(1.0, 200.0)
+        * z;
+    let budget = if horizontal {
+        Vec2::new(content.width(), content.height() * 0.45)
     } else {
-        let max_rows = (content.height() / row_height).floor().max(1.0) as usize;
-        for i in 0..entries.len() {
-            slots.push(Rect::from_min_size(
-                Pos2::new(
-                    (i / max_rows) as f32 * max_width,
-                    (i % max_rows) as f32 * row_height,
-                ),
-                Vec2::new(max_width, row_height),
-            ));
-        }
-        Vec2::new(
-            (entries.len().div_ceil(max_rows) as f32 * max_width).min(content.width() * 0.45),
-            entries.len().min(max_rows) as f32 * row_height,
-        )
+        Vec2::new(content.width() * 0.45, content.height())
     };
+    let initial = legend_layout(p, &entries, budget, horizontal, font_size, z);
+    let size = initial.size.min(budget).max(Vec2::splat(1.0));
     let automatic = if horizontal {
         Rect::from_min_size(
             Pos2::new(
@@ -1463,23 +1799,20 @@ fn chart_content(p: &egui::Painter, rect: Rect, chart: &Chart, z: f32, ink: Colo
     };
     let legend_rect = resolve_layout(chart.legend_layout.as_ref(), rect, automatic);
     let legend_p = p.with_clip_rect(legend_rect.intersect(p.clip_rect()));
-    for ((name, color), slot) in entries.iter().zip(&slots) {
+    // Reflow after manual sizing: slots measured for an automatic rectangle are
+    // not valid inside a narrower saved legend rectangle.
+    let layout = legend_layout(p, &entries, legend_rect.size(), horizontal, font_size, z);
+    for (((_, color), slot), galley) in entries.iter().zip(&layout.slots).zip(&layout.galleys) {
         let origin = legend_rect.min + slot.min.to_vec2();
         legend_p.rect_filled(
             Rect::from_min_size(
-                origin + Vec2::new(0.0, 4.0 * z),
+                origin + Vec2::new(0.0, (font_size - 6.0 * z).max(0.0) * 0.5),
                 Vec2::new(9.0 * z, 6.0 * z),
             ),
             0.0,
             *color,
         );
-        let galley = legend_p.layout(
-            name.clone(),
-            FontId::proportional(9.0 * z),
-            ink,
-            (slot.width() - 15.0 * z).max(1.0),
-        );
-        legend_p.galley(origin + Vec2::new(13.0 * z, 0.0), galley, ink);
+        legend_p.galley(origin + Vec2::new(15.0 * z, 0.0), galley.clone(), ink);
     }
     if !chart.legend_overlay {
         match position.as_str() {
@@ -1593,17 +1926,19 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
                         gridline,
                     );
                 }
-                text(
-                    &p,
-                    Pos2::new(x, plot.bottom() + 5.0 * z),
-                    Align2::CENTER_TOP,
-                    &format_value(
-                        v,
-                        axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
-                    ),
-                    9.0 * z,
-                    ink,
-                );
+                if labels_visible(axis) {
+                    text(
+                        &p,
+                        Pos2::new(x, plot.bottom() + 5.0 * z),
+                        Align2::CENTER_TOP,
+                        &format_value(
+                            v,
+                            axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
+                        ),
+                        axis_font(axis, z),
+                        ink,
+                    );
+                }
             } else {
                 let y = plot.bottom() - t * plot.height();
                 if axis.is_none_or(|a| a.major_gridlines) {
@@ -1612,45 +1947,32 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
                         gridline,
                     );
                 }
-                text(
-                    &p,
-                    Pos2::new(plot.left() - 6.0 * z, y),
-                    Align2::RIGHT_CENTER,
-                    &format_value(
-                        v,
-                        axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
-                    ),
-                    9.0 * z,
-                    ink,
-                );
+                if labels_visible(axis) {
+                    text(
+                        &p,
+                        Pos2::new(plot.left() - 6.0 * z, y),
+                        Align2::RIGHT_CENTER,
+                        &format_value(
+                            v,
+                            axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
+                        ),
+                        axis_font(axis, z),
+                        ink,
+                    );
+                }
             }
         }
     }
     p.line_segment([plot.left_bottom(), plot.right_bottom()], axis_line);
     p.line_segment([plot.left_bottom(), plot.left_top()], axis_line);
-    let full_count = chart
-        .groups
-        .iter()
-        .flat_map(|g| &g.series)
-        .map(|s| s.values.len().max(s.categories.len()))
-        .max()
-        .unwrap_or(1);
-    let categories: Vec<usize> = (0..full_count)
-        .filter(|i| {
-            chart
-                .groups
-                .iter()
-                .flat_map(|g| &g.series)
-                .any(|s| *i < s.values.len() && !hidden(s, *i))
-        })
-        .collect();
+    let categories = category_indices(chart);
     let positions: HashMap<usize, usize> = categories
         .iter()
         .enumerate()
         .map(|(position, index)| (*index, position))
         .collect();
     let count = categories.len().max(1);
-    if !xaxis.is_some_and(|a| a.hidden) {
+    if labels_visible(xaxis) {
         if numeric {
             for v in ticks(xscale, xaxis) {
                 if let Some(t) = xscale.fraction(v) {
@@ -1662,60 +1984,52 @@ pub fn paint_chart(painter: &egui::Painter, rect: Rect, chart: &Chart, zoom: f32
                             v,
                             xaxis.map(|a| a.number_format.as_str()).unwrap_or_default(),
                         ),
-                        9.0 * z,
+                        axis_font(xaxis, z),
                         ink,
                     );
                 }
             }
         } else {
-            let max_labels = if horizontal {
-                (plot.height() / (16.0 * z)) as usize
-            } else {
-                (plot.width()
-                    / primary
-                        .series
-                        .iter()
-                        .flat_map(|s| (0..s.categories.len()).map(move |i| s.categories.label(i)))
-                        .map(|label| measured(&p, &label, 9.0 * z).x + 10.0 * z)
-                        .fold(35.0 * z, f32::max)) as usize
-            }
-            .max(1);
-            let stride = count.div_ceil(max_labels);
-            for (position, &i) in categories.iter().enumerate().step_by(stride) {
+            let names = category_names(primary, &categories);
+            let labels = category_layout(
+                &p,
+                &names,
+                xaxis,
+                horizontal,
+                if horizontal {
+                    plot.height()
+                } else {
+                    plot.width()
+                },
+                if horizontal {
+                    content.width() * 0.32
+                } else {
+                    content.height() * 0.40
+                },
+                z,
+            );
+            for (position, galley) in labels.galleys.iter().enumerate().step_by(labels.stride) {
                 let mut t = (position as f32 + 0.5) / count as f32;
                 if xaxis.is_some_and(|a| a.reversed) {
                     t = 1.0 - t;
                 }
-                let label = primary
-                    .series
-                    .iter()
-                    .map(|s| s.categories.label(i))
-                    .find(|v| !v.is_empty())
-                    .unwrap_or_else(|| (i + 1).to_string());
-                if horizontal {
-                    text(
-                        &p,
-                        Pos2::new(plot.left() - 6.0 * z, plot.top() + t * plot.height()),
-                        Align2::RIGHT_CENTER,
-                        &label,
-                        9.0 * z,
-                        ink,
-                    );
+                let origin = if horizontal {
+                    Pos2::new(
+                        plot.left() - label_gap(xaxis, z),
+                        plot.top() + t * plot.height(),
+                    )
                 } else {
-                    text(
-                        &p,
-                        Pos2::new(plot.left() + t * plot.width(), plot.bottom() + 6.0 * z),
-                        Align2::CENTER_TOP,
-                        &label,
-                        9.0 * z,
-                        ink,
-                    );
-                }
+                    Pos2::new(
+                        plot.left() + t * plot.width(),
+                        plot.bottom() + label_gap(xaxis, z),
+                    )
+                };
+                paint_category_label(&p, origin, galley.clone(), labels.angle, horizontal);
             }
         }
     }
     for (a, vertical) in [(axis, !horizontal), (xaxis, horizontal)] {
-        if let Some(a) = a.filter(|a| !a.title.is_empty()) {
+        if let Some(a) = a.filter(|a| !a.hidden && !a.title.is_empty()) {
             if vertical {
                 let galley = p.layout_no_wrap(a.title.clone(), FontId::proportional(10.0 * z), ink);
                 let center = Pos2::new(content.left() + galley.size().y / 2.0, plot.center().y);
@@ -2475,6 +2789,213 @@ mod tests {
         assert_eq!(smooth.first(), points.first());
         assert_eq!(smooth.last(), points.last());
         assert_eq!(smooth.len(), 17);
+    }
+    #[test]
+    fn saved_axis_typography_and_interval_survive_parsing_and_json() {
+        let xml = r#"<chartSpace><txPr><p><pPr><defRPr sz="1000"/></pPr></p></txPr><chart><plotArea><barChart/><catAx><axId val="10"/><axPos val="b"/><txPr><bodyPr rot="-2700000"/><p><pPr><defRPr sz="1100"/></pPr></p></txPr><tickLblSkip val="2"/><lblOffset val="150"/></catAx></plotArea><legend><txPr><p><pPr><defRPr sz="1200"/></pPr></p></txPr></legend></chart></chartSpace>"#;
+        let chart = parse_chart(xml, &Theme::default()).unwrap();
+        let axis = &chart.axes[0];
+        assert_eq!(axis.label_rotation, Some(-45.0));
+        assert_eq!(axis.label_font_size, Some(11.0));
+        assert_eq!(axis.label_skip, Some(2));
+        assert_eq!(axis.label_offset, Some(150.0));
+        assert_eq!(chart.legend_font_size, Some(12.0));
+        let restored: Chart =
+            serde_json::from_str(&serde_json::to_string(&chart).unwrap()).unwrap();
+        assert_eq!(restored.axes[0].label_rotation, Some(-45.0));
+        let old: ChartAxis = serde_json::from_str(r#"{"id":"10","kind":"catAx"}"#).unwrap();
+        assert_eq!(old.label_rotation, None);
+        assert_eq!(old.label_skip, None);
+    }
+    #[test]
+    fn hidden_tick_labels_preserve_gridlines_and_remove_label_margins() {
+        let xml = r#"<chartSpace><chart><plotArea><barChart><axId val="cat"/><axId val="val"/><ser><cat><strLit><pt idx="0"><v>Category label</v></pt></strLit></cat><val><numLit><pt idx="0"><v>10000</v></pt></numLit></val></ser></barChart><catAx><axId val="cat"/><axPos val="b"/><tickLblPos val="none"/></catAx><valAx><axId val="val"/><axPos val="l"/><majorGridlines/><tickLblPos val="none"/></valAx></plotArea></chart></chartSpace>"#;
+        let chart = parse_chart(xml, &Theme::default()).unwrap();
+        assert_eq!(chart.axes[0].label_position, "none");
+        let context = egui::Context::default();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(400., 300.));
+        let output = context.run(egui::RawInput::default(), |ctx| {
+            let p = ctx.layer_painter(egui::LayerId::background());
+            let plot = auto_plot_rect(&p, rect, &chart, 1.);
+            let mut shown = chart.clone();
+            for axis in &mut shown.axes {
+                axis.label_position = "nextTo".into();
+            }
+            let shown_plot = auto_plot_rect(&p, rect, &shown, 1.);
+            assert!(plot.left() < shown_plot.left());
+            assert!(plot.bottom() > shown_plot.bottom());
+            paint_chart(&p, rect, &chart, 1.);
+        });
+        assert!(
+            !output
+                .shapes
+                .iter()
+                .any(|shape| matches!(shape.shape, Shape::Text(_)))
+        );
+        assert!(
+            output
+                .shapes
+                .iter()
+                .filter(|shape| matches!(shape.shape, Shape::LineSegment { .. }))
+                .count()
+                > 2,
+            "tick labels none must preserve gridlines"
+        );
+    }
+    #[test]
+    fn category_layout_reserves_rotated_text_and_honors_explicit_interval() {
+        let context = egui::Context::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            let p = ctx.layer_painter(egui::LayerId::background());
+            let names: Vec<_> = (1..=12)
+                .map(|i| format!("Department-{i:02}-Revenue"))
+                .collect();
+            let explicit = ChartAxis {
+                label_rotation: Some(-45.0),
+                label_font_size: Some(11.0),
+                label_skip: Some(2),
+                ..Default::default()
+            };
+            let plan = category_layout(&p, &names, Some(&explicit), false, 400., 140., 1.);
+            assert_eq!(
+                plan.stride, 2,
+                "saved interval must not be replaced by automatic skipping"
+            );
+            assert_eq!(plan.angle, -std::f32::consts::FRAC_PI_4);
+            assert!(
+                plan.extent.y > 50.,
+                "rotation needs actual glyph-height reservation"
+            );
+            let automatic = category_layout(&p, &names, None, false, 400., 140., 1.);
+            assert_eq!(
+                automatic.stride, 1,
+                "diagonal labels fit without dropping categories"
+            );
+            let words = vec![
+                "North America".into(),
+                "South America".into(),
+                "East Europe".into(),
+            ];
+            let wrapped = category_layout(&p, &words, None, false, 160., 100., 1.);
+            assert_eq!(wrapped.angle, 0.0);
+            assert!(wrapped.galleys.iter().any(|g| g.rows.len() > 1));
+            let chart = Chart {
+                groups: vec![ChartGroup {
+                    kind: "bar".into(),
+                    axis_ids: vec!["cat".into()],
+                    series: vec![ChartSeries {
+                        values: ChartData {
+                            numbers: vec![Some(10.); 12],
+                            ..Default::default()
+                        },
+                        categories: ChartData {
+                            labels: names.iter().cloned().map(Some).collect(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                axes: vec![ChartAxis {
+                    id: "cat".into(),
+                    kind: "catAx".into(),
+                    ..explicit
+                }],
+                ..Default::default()
+            };
+            let content = Rect::from_min_size(Pos2::ZERO, Vec2::new(500., 350.));
+            let plot = auto_plot_rect(&p, content, &chart, 1.);
+            assert!(content.bottom() - plot.bottom() >= plan.extent.y + 6.);
+            let bounds = rotated_bounds(plan.galleys[0].size(), plan.angle);
+            let anchor = category_anchor(bounds, plan.angle, false);
+            let first_x = plot.left() + plot.width() / 24.0;
+            assert!(
+                first_x + bounds.left() - anchor.x >= content.left(),
+                "first rotated label must fit inside chart"
+            );
+        });
+    }
+    #[test]
+    fn parallel_diagonal_labels_use_glyph_clearance_instead_of_aabb_width() {
+        let context = egui::Context::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            let p = ctx.layer_painter(egui::LayerId::background());
+            let names: Vec<_> = (1..=12)
+                .map(|i| format!("Department-{i:02}-Subscription-Revenue"))
+                .collect();
+            let length = 180.0;
+            let layout = category_layout(&p, &names, None, false, length, 160.0, 1.0);
+            assert_eq!(layout.angle, -std::f32::consts::FRAC_PI_4);
+            assert!(
+                (2..=3).contains(&layout.stride),
+                "long parallel labels should retain several categories, got stride {}",
+                layout.stride
+            );
+            let spacing = length / names.len() as f32 * layout.stride as f32;
+            let height = layout
+                .galleys
+                .iter()
+                .map(|g| g.size().y)
+                .fold(0.0, f32::max);
+            assert!(
+                spacing * layout.angle.sin().abs() >= height + 5.0,
+                "adjacent label rectangles need clearance perpendicular to their baselines"
+            );
+            assert!(
+                spacing < layout.extent.x,
+                "AABB overlap alone must not discard labels"
+            );
+            for (angle, vertical) in [(0.0, false), (90.0, false), (0.0, true), (-90.0, true)] {
+                let axis = ChartAxis {
+                    label_rotation: Some(angle),
+                    ..Default::default()
+                };
+                let plan = category_layout(&p, &names, Some(&axis), vertical, length, 160.0, 1.0);
+                assert!((1..=names.len()).contains(&plan.stride));
+            }
+            let saved = ChartAxis {
+                label_rotation: Some(-45.0),
+                label_skip: Some(7),
+                ..Default::default()
+            };
+            assert_eq!(
+                category_layout(&p, &names, Some(&saved), false, length, 160.0, 1.0).stride,
+                7
+            );
+        });
+    }
+    #[test]
+    fn legends_reflow_wrapped_rows_without_overlap_and_use_manual_width() {
+        let context = egui::Context::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            let p = ctx.layer_painter(egui::LayerId::background());
+            let entries: Vec<_> = (1..=5)
+                .map(|i| {
+                    (
+                        format!("Region {i} recurring subscription revenue"),
+                        Color32::BLUE,
+                    )
+                })
+                .collect();
+            let narrow = legend_layout(&p, &entries, Vec2::new(150., 250.), false, 11., 1.);
+            let wide = legend_layout(&p, &entries, Vec2::new(340., 250.), false, 11., 1.);
+            assert!(narrow.galleys.iter().any(|g| g.rows.len() > 1));
+            assert!(narrow.slots[0].height() > wide.slots[0].height());
+            assert!(narrow.size.x <= 150.1 && narrow.size.y <= 250.1);
+            for (i, slot) in narrow.slots.iter().enumerate() {
+                assert!(slot.height() >= narrow.galleys[i].size().y + 5.9);
+                for next in &narrow.slots[i + 1..] {
+                    assert!(
+                        !slot.shrink(0.1).intersects(next.shrink(0.1)),
+                        "wrapped legend entries overlap"
+                    );
+                }
+            }
+            let rows = legend_layout(&p, &entries, Vec2::new(260., 300.), true, 11., 1.);
+            for pair in rows.slots.windows(2) {
+                assert!(!pair[0].shrink(0.1).intersects(pair[1].shrink(0.1)));
+            }
+        });
     }
     #[test]
     fn crowded_or_tiny_chart_rectangles_never_panic() {

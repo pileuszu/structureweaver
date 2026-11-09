@@ -104,6 +104,7 @@ struct Desktop {
     model: String,
     models: Vec<String>,
     connected: bool,
+    settings_open: bool,
     document: Option<Document>,
     file: Option<PathBuf>,
     result: Option<Analysis>,
@@ -138,7 +139,7 @@ impl Desktop {
         visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
         visuals.selection.bg_fill = SELECTED;
         visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
-        visuals.widgets.active.bg_fill = SELECTED;
+        visuals.widgets.active.bg_fill = PANEL_ALT;
         visuals.widgets.hovered.bg_fill = PANEL_ALT;
         cc.egui_ctx.set_theme(egui::ThemePreference::Light);
         cc.egui_ctx.set_visuals(visuals);
@@ -196,6 +197,7 @@ impl Desktop {
             model: String::new(),
             models: vec![],
             connected: false,
+            settings_open: false,
             document: None,
             file: None,
             result: None,
@@ -410,6 +412,71 @@ impl Desktop {
         }
     }
 
+    fn settings(&mut self, ctx: &egui::Context) {
+        if !self.settings_open {
+            return;
+        }
+        let mut open = self.settings_open;
+        let mut close = false;
+        egui::Window::new("설정")
+            .id(egui::Id::new("application-settings"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(500.0)
+            .show(ctx, |ui| {
+                ui.label(RichText::new("로컬 Llama 연결").family(semibold_family()).size(17.0));
+                ui.label(RichText::new("Llama 앱에서 로컬 API 서버를 실행한 뒤 연결하세요.").size(12.0).color(MUTED));
+                ui.add_space(12.0);
+                ui.add_enabled_ui(!self.busy, |ui| {
+                    ui.label("서버 주소");
+                    if ui.add(egui::TextEdit::singleline(&mut self.endpoint)
+                        .desired_width(f32::INFINITY).hint_text("http://127.0.0.1:9931/v1")).changed() {
+                        self.connected = false;
+                        self.models.clear();
+                    }
+                    ui.add_space(6.0);
+                    ui.label("모델 ID");
+                    ui.add(egui::TextEdit::singleline(&mut self.model)
+                        .desired_width(f32::INFINITY).hint_text("연결 후 목록에서 선택하거나 직접 입력하세요"));
+                    if !self.models.is_empty() {
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("사용 가능한 모델").size(12.0).color(MUTED));
+                        egui::ScrollArea::vertical().id_salt("settings-models").max_height(160.0).show(ui, |ui| {
+                            for model in &self.models {
+                                let current = self.model == *model;
+                                let label = RichText::new(short_model(model)).family(if current { semibold_family() } else { egui::FontFamily::Proportional });
+                                if ui.add(egui::Button::new(if current { label.underline() } else { label }).frame(false))
+                                    .on_hover_text(model).clicked() {
+                                    self.model = model.clone();
+                                }
+                            }
+                        });
+                    }
+                });
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(!self.busy, egui::Button::new("모델 연결 / 새로고침")).clicked() {
+                        self.connect(ctx);
+                    }
+                    ui.label(RichText::new(if self.connected { "연결됨" } else if self.busy { "작업 중" } else { "연결 대기" })
+                        .size(12.0).color(if self.connected { ACCENT } else { MUTED }));
+                });
+                ui.add_space(6.0);
+                ui.label(RichText::new("이미지 입력을 지원하는 모델을 선택하세요. 문서는 이 컴퓨터에서 분석합니다.").size(12.0).color(MUTED));
+                if let Some(error) = &self.error {
+                    ui.add_space(6.0);
+                    ui.colored_label(WARM, error);
+                }
+                ui.add_space(10.0);
+                ui.separator();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("닫기").clicked() { close = true; }
+                });
+            });
+        self.settings_open = open && !close;
+    }
+
     fn sidebar(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("workspace")
             .resizable(false)
@@ -441,17 +508,17 @@ impl Desktop {
                         ui.add_space(20.0);
                         ui.horizontal(|ui| {
                             eyebrow(ui, "시트 탐색", MUTED);
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| { pill(ui, &document.pages.len().to_string(), MUTED); });
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| { metadata_label(ui, &document.pages.len().to_string(), MUTED); });
                         });
                         ui.add_space(7.0);
                         egui::ScrollArea::vertical().id_salt("sheet-list").max_height(235.0).show(ui, |ui| {
                             for (index, page) in document.pages.iter().enumerate() {
                                 let selected = self.selected_page == index;
                                 let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 53.0), egui::Sense::click());
-                                response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), selected, &page.name));
+                                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), &page.name));
                                 let painter = ui.painter();
-                                if selected || response.hovered() {
-                                    painter.rect_filled(rect, 5.0, if selected { SELECTED } else { PANEL_ALT });
+                                if response.hovered() {
+                                    painter.rect_filled(rect, 0.0, PANEL_ALT);
                                 }
                                 if selected { painter.rect_filled(egui::Rect::from_min_size(rect.min + Vec2::new(0.0, 11.0), Vec2::new(2.0, 31.0)), 1.0, ACCENT); }
                                 let icon = rect.min + Vec2::new(16.0, 18.0);
@@ -483,30 +550,11 @@ impl Desktop {
                     ui.separator();
                     ui.add_space(18.0);
                     ui.horizontal(|ui| {
-                        eyebrow(ui, "LOCAL LLAMA", ACCENT);
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            pill(ui, if self.connected { "연결됨" } else { "연결 대기" }, if self.connected { ACCENT } else { MUTED });
-                        });
+                        ui.label(RichText::new("Llama").size(12.0).color(MUTED));
+                        ui.label(RichText::new(if self.connected { "연결됨" } else { "연결 대기" })
+                            .size(12.0).color(if self.connected { ACCENT } else { MUTED }));
                     });
-                    ui.add_space(10.0);
-                    ui.label(RichText::new("비전 모델").size(13.0).color(MUTED));
-                    ui.add_enabled_ui(!self.busy, |ui| {
-                        let label = if self.model.is_empty() { "모델을 선택하세요".into() } else { short_model(&self.model) };
-                        egui::ComboBox::from_id_salt("model").selected_text(label).width(ui.available_width() - 10.0).show_ui(ui, |ui| {
-                            for model in &self.models { ui.selectable_value(&mut self.model, model.clone(), model); }
-                        }).response.on_hover_text(&self.model);
-                        ui.add_space(4.0);
-                        ui.collapsing(RichText::new("연결 설정").size(13.0).color(MUTED), |ui| {
-                            ui.label(RichText::new("API URL").small().color(MUTED));
-                            if ui.add(egui::TextEdit::singleline(&mut self.endpoint).desired_width(f32::INFINITY)).changed() { self.connected = false; }
-                            ui.label(RichText::new("모델 ID 직접 입력").small().color(MUTED));
-                            ui.add(egui::TextEdit::singleline(&mut self.model).desired_width(f32::INFINITY));
-                        });
-                    });
-                    if ui.add_enabled(!self.busy, egui::Button::new("모델 연결 / 새로고침").min_size(Vec2::new(ui.available_width(), 33.0)).corner_radius(6.0)).clicked() { self.connect(ctx); }
-                    ui.add_space(7.0);
-                    ui.label(RichText::new("이 컴퓨터의 Llama에서 분석합니다.").size(11.5).color(MUTED));
-                    ui.add_space(19.0);
+                    ui.add_space(16.0);
                     if self.analyzing {
                         if ui.add_enabled(!self.cancel.load(Ordering::Relaxed), egui::Button::new("분석 취소").min_size(Vec2::new(ui.available_width(), 42.0))).clicked() {
                             self.cancel.store(true, Ordering::Relaxed);
@@ -557,7 +605,7 @@ impl Desktop {
             .map(|r| r.tables.iter().filter(|t| t.page_id == page.id).collect())
             .unwrap_or_default();
         if !tables.is_empty() {
-            ui.collapsing(
+            ui.menu_button(
                 format!("분석한 구조 · {}개 테이블", tables.len()),
                 |ui| {
                     ui.horizontal_wrapped(|ui| {
@@ -568,7 +616,17 @@ impl Desktop {
                             } else {
                                 egui::FontFamily::Proportional
                             });
-                            if ui.selectable_label(selected, label).clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new(if selected {
+                                        label.underline()
+                                    } else {
+                                        label
+                                    })
+                                    .frame(false),
+                                )
+                                .clicked()
+                            {
                                 self.selected_table = Some(table.id.clone());
                             }
                         }
@@ -594,7 +652,7 @@ impl Desktop {
                                         }
                                     }
                                 });
-                                ui.collapsing(
+                                ui.menu_button(
                                     format!("헤더 계층 · {}개 노드", table.headers.len()),
                                     |ui| {
                                         for header in &table.headers {
@@ -813,10 +871,9 @@ impl Desktop {
                             let response =
                                 ui.interact(rect, ui.id().with(&entity.id), egui::Sense::click());
                             response.widget_info(|| {
-                                egui::WidgetInfo::selected(
-                                    egui::WidgetType::SelectableLabel,
+                                egui::WidgetInfo::labeled(
+                                    egui::WidgetType::Button,
                                     ui.is_enabled(),
-                                    selected,
                                     &entity.name,
                                 )
                             });
@@ -1033,8 +1090,8 @@ impl Desktop {
         );
         ui.add_space(5.0);
         ui.horizontal(|ui| {
-            pill(ui, &format!("{}개 행", entity.row_count), MUTED);
-            pill(ui, &format!("{}개 속성", entity.attributes.len()), LAVENDER);
+            metadata_label(ui, &format!("{}개 행", entity.row_count), MUTED);
+            metadata_label(ui, &format!("{}개 속성", entity.attributes.len()), LAVENDER);
         });
         ui.add_space(17.0);
         card_frame().show(ui, |ui| {
@@ -1055,21 +1112,19 @@ impl Desktop {
         eyebrow(ui, "속성 / SOURCE", MUTED);
         ui.add_space(8.0);
         for attribute in &entity.attributes {
-            egui::CollapsingHeader::new(
-                RichText::new(&attribute.name)
-                    .size(13.5)
-                    .family(semibold_family()),
-            )
-            .id_salt((&entity.id, &attribute.name))
-            .default_open(attribute.primary_key)
-            .show(ui, |ui| {
+            ui.push_id((&entity.id, &attribute.name), |ui| {
+                ui.label(
+                    RichText::new(&attribute.name)
+                        .size(13.5)
+                        .family(semibold_family()),
+                );
                 ui.horizontal_wrapped(|ui| {
-                    pill(ui, &attribute.data_type, MUTED);
+                    metadata_label(ui, &attribute.data_type, MUTED);
                     if attribute.primary_key {
-                        pill(ui, "PK 후보", WARM);
+                        metadata_label(ui, "PK 후보", WARM);
                     }
                     if attribute.nullable {
-                        pill(ui, "NULL 허용", MUTED);
+                        metadata_label(ui, "NULL 허용", MUTED);
                     }
                 });
                 if let SourceRegion::Cells { bounds } = attribute.source.region {
@@ -1143,8 +1198,8 @@ impl Desktop {
                 );
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
-                    pill(ui, cardinality_label(&relation.cardinality), ACCENT);
-                    pill(
+                    metadata_label(ui, cardinality_label(&relation.cardinality), ACCENT);
+                    metadata_label(
                         ui,
                         &format!("{:.0}%", relation.confidence * 100.0),
                         LAVENDER,
@@ -1348,16 +1403,17 @@ impl Desktop {
                     let (rect, response) =
                         ui.allocate_exact_size(Vec2::new(35.0, 35.0), egui::Sense::click());
                     response.widget_info(|| {
-                        egui::WidgetInfo::selected(
-                            egui::WidgetType::SelectableLabel,
-                            ui.is_enabled(),
-                            selected,
-                            label,
-                        )
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
                     });
                     let painter = ui.painter();
-                    if selected || response.hovered() {
-                        painter.rect_filled(rect, 5.0, if selected { SELECTED } else { PANEL_ALT });
+                    if response.hovered() {
+                        painter.rect_filled(rect, 0.0, PANEL_ALT);
+                    }
+                    if selected {
+                        painter.line_segment(
+                            [rect.left_top(), rect.left_bottom()],
+                            Stroke::new(2.0_f32, ACCENT),
+                        );
                     }
                     let color = if selected { ACCENT } else { TEXT };
                     let center = rect.center();
@@ -1425,6 +1481,10 @@ impl Desktop {
 impl eframe::App for Desktop {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
+        if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::Comma)) {
+            self.settings_open = true;
+        }
+
         if self.busy {
             ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
@@ -1483,6 +1543,9 @@ impl eframe::App for Desktop {
                             self.export(ctx);
                         }
                         ui.add_space(7.0);
+                        if ui.add(egui::Button::new("설정").frame(false)).clicked() {
+                            self.settings_open = true;
+                        }
                         ui.label(RichText::new("로컬 워크스페이스").size(11.5).color(MUTED));
                     });
                 });
@@ -1579,6 +1642,7 @@ impl eframe::App for Desktop {
                     View::Report => self.report(ui),
                 }
             });
+        self.settings(ctx);
     }
 }
 
@@ -1604,19 +1668,8 @@ fn eyebrow(ui: &mut egui::Ui, label: &str, color: Color32) {
             .family(semibold_family()),
     );
 }
-fn pill(ui: &mut egui::Ui, label: &str, color: Color32) {
-    egui::Frame::NONE
-        .fill(Color32::from_rgba_unmultiplied(
-            color.r(),
-            color.g(),
-            color.b(),
-            18,
-        ))
-        .corner_radius(4.0)
-        .inner_margin(egui::Margin::symmetric(6, 3))
-        .show(ui, |ui| {
-            ui.label(RichText::new(label).size(11.0).color(color));
-        });
+fn metadata_label(ui: &mut egui::Ui, label: &str, color: Color32) {
+    ui.label(RichText::new(label).size(11.0).color(color));
 }
 fn woven_mark(ui: &mut egui::Ui, size: f32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());

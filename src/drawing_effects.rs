@@ -59,6 +59,13 @@ pub struct Scene3D {
     pub bevel: String,
     pub material: String,
     pub light_direction: String,
+    #[serde(default = "default_light_rig")]
+    pub light_rig: String,
+    #[serde(default)]
+    pub light_rotation: [f32; 3],
+}
+fn default_light_rig() -> String {
+    "threePt".into()
 }
 
 fn distance(n: Option<&Node>, key: &str, default: f64) -> f32 {
@@ -204,6 +211,21 @@ pub(super) fn parse(
                 .and_then(|n| n.attr("dir"))
                 .unwrap_or("tl")
                 .into(),
+            light_rig: scene
+                .and_then(|n| n.child("lightRig"))
+                .and_then(|n| n.attr("rig"))
+                .unwrap_or("threePt")
+                .into(),
+            light_rotation: {
+                let rot = scene
+                    .and_then(|n| n.child("lightRig"))
+                    .and_then(|n| n.child("rot"));
+                [
+                    angle(rot, "lat", 0.0),
+                    angle(rot, "lon", 0.0),
+                    angle(rot, "rev", 0.0),
+                ]
+            },
         });
         warnings.push("3D 도형의 재질·조명·베벨은 네이티브 근사 표시입니다".into());
         if three.is_some_and(|n| n.child("bevelB").is_some()) {
@@ -280,26 +302,36 @@ impl DrawingEffects {
             finite_range(size.y.abs(), 0.0, 1e8, 0.0),
         );
         let safe = self.bounded();
+        let source_rect = Rect::from_min_size(Pos2::ZERO, size);
+        let source_bounds = safe.scene.as_ref().map_or(source_rect, |scene| {
+            let mut bounds = source_rect;
+            for q in [
+                source_rect.left_top(),
+                source_rect.right_top(),
+                source_rect.right_bottom(),
+                source_rect.left_bottom(),
+            ] {
+                for depth in [0.0, finite_range(scene.extrusion, 0.0, 512.0, 0.0) * z] {
+                    bounds.extend_with(project(q, source_rect, depth, scene));
+                }
+            }
+            bounds.expand(finite_range(scene.contour, 0.0, 512.0, 0.0) * z + 2.0)
+        });
+        let extrusion = (-source_bounds.left())
+            .max(-source_bounds.top())
+            .max(source_bounds.right() - size.x)
+            .max(source_bounds.bottom() - size.y)
+            .max(0.0);
+        // Effects consume the projected silhouette, and their frame can remain
+        // screen-aligned while the source rotates. Its diagonal bounds both axes.
+        let effect_size = Vec2::splat(source_bounds.size().length().min(1e8));
         let reflection = safe.reflection.as_ref().map_or(0.0, |r| {
-            size.y * r.scale[1].abs()
-                + size.x * (r.scale[0].abs() - 1.0).max(0.0)
+            effect_size.x * r.scale[0].abs().max(r.scale[1].abs())
                 + (r.distance + r.blur * 3.0) * z
-                + r.skew[0].to_radians().tan().abs() * size.y
-                + r.skew[1].to_radians().tan().abs() * size.x
+                + r.skew[0].to_radians().tan().abs() * effect_size.y
+                + r.skew[1].to_radians().tan().abs() * effect_size.x
         });
-        let extrusion = safe.scene.as_ref().map_or(0.0, |s| {
-            let projection_gain = finite_range(s.zoom, 0.01, 4.0, 1.0)
-                * if s.camera.starts_with("perspective") {
-                    5.0
-                } else {
-                    1.0
-                };
-            (finite_range(s.extrusion, 0.0, 512.0, 0.0) + finite_range(s.contour, 0.0, 512.0, 0.0))
-                * z
-                * projection_gain
-                + size.max_elem() * (projection_gain - 1.0).max(0.0)
-        });
-        (safe.padding(size, z) + reflection + extrusion).min(1e8)
+        (safe.padding(effect_size, z) + reflection + extrusion).min(1e8)
     }
     fn padding(&self, size: Vec2, z: f32) -> f32 {
         if !self.has_raster_effects() {
@@ -316,7 +348,7 @@ impl DrawingEffects {
             .max(self.glow.as_ref().map_or(0.0, |g| g.radius * 2.0 * z))
             .max(self.soft_edge * z)
             + 2.0)
-            .min(2048.0)
+            .min(1e8)
     }
 }
 
@@ -324,6 +356,7 @@ impl DrawingEffects {
 pub(super) struct EffectRenderer {
     cache: HashMap<u64, CachedEffect>,
     pixels: usize,
+    rejected: std::collections::HashSet<u64>,
 }
 struct CachedEffect {
     texture: egui::TextureHandle,
@@ -334,6 +367,7 @@ impl EffectRenderer {
     pub(super) fn clear(&mut self) {
         self.cache.clear();
         self.pixels = 0;
+        self.rejected.clear();
     }
     pub(super) fn shape(
         &mut self,
@@ -341,14 +375,22 @@ impl EffectRenderer {
         rect: Rect,
         shape: &ShapeData,
         paths: &[ShapePath],
-        pose: Pose,
-        z: f32,
+        context: (Pose, f32),
+        resolve_font: &dyn Fn(&TextRun) -> egui::FontFamily,
     ) -> bool {
-        if !shape.effects.has_raster_effects() {
+        let (pose, z) = context;
+        if !shape.effects.has_raster_effects() && shape.effects.scene.is_none() {
             return false;
         }
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         format!("{shape:?}").hash(&mut hash);
+        for run in shape
+            .paragraphs
+            .iter()
+            .flat_map(|paragraph| &paragraph.runs)
+        {
+            resolve_font(run).hash(&mut hash);
+        }
         let key = effect_key(
             hash.finish(),
             rect.size(),
@@ -356,11 +398,37 @@ impl EffectRenderer {
             z,
             p.ctx().pixels_per_point(),
         );
-        if !self.cache.contains_key(&key) {
-            let source = shape_source(rect.size(), shape, paths, z, pose);
-            self.insert(p, key, source, rect.size(), &shape.effects, (pose, z));
+        if self.rejected.contains(&key) {
+            return false;
         }
-        self.paint(p, key, rect, pose)
+        if !self.cache.contains_key(&key) {
+            let Some((source, bounds)) =
+                shape_source(p, rect.size(), shape, paths, z, pose, resolve_font)
+            else {
+                if self.rejected.len() >= 64 {
+                    self.rejected.clear();
+                }
+                self.rejected.insert(key);
+                return false;
+            };
+            // Geometry flips are baked into the source; text retains its readable orientation.
+            let display_pose = Pose {
+                rotation: pose.rotation,
+                flip_h: false,
+                flip_v: false,
+            };
+            self.insert(p, key, source, bounds, &shape.effects, (display_pose, z));
+        }
+        self.paint(
+            p,
+            key,
+            rect,
+            Pose {
+                rotation: pose.rotation,
+                flip_h: false,
+                flip_v: false,
+            },
+        )
     }
     pub(super) fn picture(
         &mut self,
@@ -387,7 +455,14 @@ impl EffectRenderer {
             let Some(source) = picture_source(rect.size(), picture) else {
                 return false;
             };
-            self.insert(p, key, source, rect.size(), &picture.effects, (pose, z));
+            self.insert(
+                p,
+                key,
+                source,
+                Rect::from_min_size(Pos2::ZERO, rect.size()),
+                &picture.effects,
+                (pose, z),
+            );
         }
         self.paint(p, key, rect, pose)
     }
@@ -396,11 +471,13 @@ impl EffectRenderer {
         p: &egui::Painter,
         key: u64,
         source: image::RgbaImage,
-        size: Vec2,
+        source_bounds: Rect,
         effects: &DrawingEffects,
         context: (Pose, f32),
     ) {
-        let (image, bounds) = composite(source, size, effects, context.0, context.1);
+        let (image, bounds) =
+            composite(source, source_bounds.size(), effects, context.0, context.1);
+        let bounds = bounds.translate(source_bounds.min.to_vec2());
         if self.pixels + image.pixels.len() > 8_000_000 || self.cache.len() >= 64 {
             self.clear();
         }
@@ -460,104 +537,187 @@ fn raster_size(size: Vec2) -> [u32; 2] {
         (size.y * factor).ceil().max(1.0) as u32,
     ]
 }
-fn inside(point: Pos2, points: &[[f32; 2]]) -> bool {
-    let mut result = false;
-    for (a, b) in points
-        .iter()
-        .zip(points.iter().cycle().skip(1))
-        .take(points.len())
-    {
-        if (a[1] > point.y) != (b[1] > point.y)
-            && point.x < (b[0] - a[0]) * (point.y - a[1]) / (b[1] - a[1]) + a[0]
-        {
-            result = !result;
-        }
-    }
-    result
-}
+/// Capture the same vector geometry and glyph atlas used on screen. This makes
+/// text, arrowheads and projected 3D faces part of the effect silhouette instead
+/// of laying an unaffected text label over a blurred/reflected shape.
 fn shape_source(
+    p: &egui::Painter,
     size: Vec2,
     shape: &ShapeData,
     paths: &[ShapePath],
     z: f32,
     pose: Pose,
-) -> image::RgbaImage {
-    let [mut w, mut h] = raster_size(size);
-    // Bound work for hostile custom paths without allocating a huge offscreen canvas.
-    let edges = paths.iter().map(|p| p.points.len()).sum::<usize>().max(1);
-    let budget = 64_000_000.0 / edges as f32;
-    let reduction = (budget / (w as f32 * h as f32)).sqrt().min(1.0);
-    w = ((w as f32 * reduction).floor() as u32).max(1);
-    h = ((h as f32 * reduction).floor() as u32).max(1);
-    let fill = rgba(shape.fill.as_deref(), Color32::TRANSPARENT);
-    let line = rgba(shape.line.as_deref(), Color32::TRANSPARENT);
-    let angle = shape
-        .gradient
-        .as_ref()
-        .map_or(0.0, |g| {
-            g.angle
-                - if g.rotate_with_shape {
-                    0.0
-                } else {
-                    pose.rotation
-                }
-        })
-        .to_radians();
-    let direction = Vec2::new(angle.cos(), angle.sin());
-    let mut image = image::RgbaImage::new(w, h);
-    for (x, y, pixel) in image.enumerate_pixels_mut() {
-        let q = Pos2::new((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
-        let mut c = Color32::TRANSPARENT;
-        for path in paths {
-            if path.closed && path.fill && inside(q, &path.points) {
-                c = if let Some(g) = &shape.gradient {
-                    let d = if g.scaled {
-                        direction * size
-                    } else {
-                        direction
-                    };
-                    let d = Vec2::new(d.x * size.x, d.y * size.y);
-                    let min = d.x.min(0.0) + d.y.min(0.0);
-                    gradient_color(
-                        g,
-                        ((q.x * d.x + q.y * d.y - min) / (d.x.abs() + d.y.abs()).max(0.001))
-                            .clamp(0.0, 1.0),
-                    )
-                } else {
-                    fill
-                };
+    resolve_font: &dyn Fn(&TextRun) -> egui::FontFamily,
+) -> Option<(image::RgbaImage, Rect)> {
+    let layer = egui::LayerId::new(
+        egui::Order::Background,
+        egui::Id::new("drawing-effect-source"),
+    );
+    let capture = egui::Painter::new(p.ctx().clone(), layer, Rect::EVERYTHING);
+    let rect = Rect::from_min_size(Pos2::ZERO, size);
+    let mut source_shape = shape.clone();
+    if let Some(gradient) = &mut source_shape.gradient
+        && !gradient.rotate_with_shape
+    {
+        gradient.angle -= pose.rotation;
+    }
+    DrawingRenderer::shape_body(
+        &capture,
+        rect,
+        &source_shape,
+        paths,
+        Pose {
+            rotation: 0.0,
+            flip_h: pose.flip_h,
+            flip_v: pose.flip_v,
+        },
+        z,
+        resolve_font,
+    );
+    // Take only this private layer; no captured primitive reaches the main canvas.
+    let list = p
+        .ctx()
+        .graphics_mut(|graphics| std::mem::take(graphics.entry(layer)));
+    let shapes: Vec<_> = list.all_entries().cloned().collect();
+    let bounds = shapes.iter().fold(rect, |bounds, shape| {
+        bounds.union(shape.shape.visual_bounding_rect())
+    });
+    if !bounds.is_finite() || !bounds.is_positive() {
+        return None;
+    }
+    let primitives = p.ctx().tessellate(shapes, p.ctx().pixels_per_point());
+    let atlas = p.ctx().fonts(|fonts| fonts.image());
+    raster_primitives(&primitives, &atlas, bounds).map(|image| (image, bounds))
+}
+
+/// Bounded CPU tessellation rasterizer. Font atlas texels and vertex colors are
+/// premultiplied, just like egui's GPU path, so translucent glyph edges do not
+/// acquire a dark fringe when subsequently blurred.
+fn raster_primitives(
+    primitives: &[egui::epaint::ClippedPrimitive],
+    atlas: &egui::epaint::FontImage,
+    bounds: Rect,
+) -> Option<image::RgbaImage> {
+    if atlas.width() == 0 || atlas.height() == 0 {
+        return None;
+    }
+    let [w, h] = raster_size(bounds.size());
+    let factor = Vec2::new(w as f32 / bounds.width(), h as f32 / bounds.height());
+    let atlas_pixels: Vec<_> = atlas
+        .srgba_pixels(None)
+        .map(|c| c.a() as f32 / 255.0)
+        .collect();
+    let coverage = |uv: Pos2| {
+        let x =
+            (uv.x * atlas.width() as f32 - 0.5).clamp(0.0, atlas.width().saturating_sub(1) as f32);
+        let y = (uv.y * atlas.height() as f32 - 0.5)
+            .clamp(0.0, atlas.height().saturating_sub(1) as f32);
+        let (x0, y0) = (x.floor() as usize, y.floor() as usize);
+        let (x1, y1) = (
+            (x0 + 1).min(atlas.width() - 1),
+            (y0 + 1).min(atlas.height() - 1),
+        );
+        let (fx, fy) = (x.fract(), y.fract());
+        let sample = |x, y| atlas_pixels[y * atlas.width() + x];
+        (sample(x0, y0) * (1.0 - fx) + sample(x1, y0) * fx) * (1.0 - fy)
+            + (sample(x0, y1) * (1.0 - fx) + sample(x1, y1) * fx) * fy
+    };
+    let mut pixels = vec![[0.0_f32; 4]; (w * h) as usize];
+    let mut work = 0_u64;
+    for primitive in primitives {
+        let egui::epaint::Primitive::Mesh(mesh) = &primitive.primitive else {
+            continue;
+        };
+        if mesh.texture_id != egui::TextureId::default() || !mesh.is_valid() {
+            return None;
+        }
+        for indices in mesh.indices.as_chunks::<3>().0 {
+            let mut v =
+                [indices[0], indices[1], indices[2]].map(|index| mesh.vertices[index as usize]);
+            let mut q = v.map(|vertex| (vertex.pos - bounds.min) * factor);
+            let cross = |a: Vec2, b: Vec2| a.x * b.y - a.y * b.x;
+            let mut area = cross(q[1] - q[0], q[2] - q[0]);
+            if !area.is_finite() || area.abs() < 1e-6 {
+                continue;
             }
-            if path.stroke && line.a() > 0 && shape.line_width > 0.0 {
-                let point = Pos2::new(q.x * size.x, q.y * size.y);
-                for pair in path
-                    .points
-                    .iter()
-                    .zip(path.points.iter().cycle().skip(1))
-                    .take(path.points.len() - usize::from(!path.closed))
-                {
-                    let (a, b) = (
-                        Pos2::new(pair.0[0] * size.x, pair.0[1] * size.y),
-                        Pos2::new(pair.1[0] * size.x, pair.1[1] * size.y),
+            if area < 0.0 {
+                q.swap(1, 2);
+                v.swap(1, 2);
+                area = -area;
+            }
+            let min = q
+                .into_iter()
+                .fold(Vec2::splat(f32::INFINITY), Vec2::min)
+                .floor()
+                .max(Vec2::ZERO);
+            let max = q
+                .into_iter()
+                .fold(Vec2::splat(f32::NEG_INFINITY), Vec2::max)
+                .ceil()
+                .min(Vec2::new(w as f32, h as f32));
+            work = work
+                .saturating_add((max.x - min.x).max(0.0) as u64 * (max.y - min.y).max(0.0) as u64);
+            if work > 96_000_000 {
+                return None;
+            }
+            let edge = |a: Vec2, b: Vec2, point: Vec2| cross(b - a, point - a);
+            let included = |value: f32, a: Vec2, b: Vec2| {
+                value > 0.00001
+                    || (value.abs() <= 0.00001 && (b.y < a.y || (b.y == a.y && b.x > a.x)))
+            };
+            for y in min.y as u32..max.y as u32 {
+                for x in min.x as u32..max.x as u32 {
+                    let point = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+                    let weights = [
+                        edge(q[1], q[2], point),
+                        edge(q[2], q[0], point),
+                        edge(q[0], q[1], point),
+                    ];
+                    if !(included(weights[0], q[1], q[2])
+                        && included(weights[1], q[2], q[0])
+                        && included(weights[2], q[0], q[1]))
+                    {
+                        continue;
+                    }
+                    let local = bounds.min + point / factor;
+                    if !primitive.clip_rect.contains(local) {
+                        continue;
+                    }
+                    let weights = weights.map(|weight| weight / area);
+                    let uv = Pos2::new(
+                        (0..3).map(|i| v[i].uv.x * weights[i]).sum(),
+                        (0..3).map(|i| v[i].uv.y * weights[i]).sum(),
                     );
-                    let v = b - a;
-                    let t = ((point - a).dot(v) / v.length_sq().max(0.001)).clamp(0.0, 1.0);
-                    let width = (shape.line_width * z).max(1.0);
-                    let length = if shape.dash.to_ascii_lowercase().contains("dot") {
-                        width
-                    } else {
-                        width * 4.0
-                    };
-                    let visible = shape.dash == "solid"
-                        || (t * v.length()) % (length + width * 2.5) <= length;
-                    if visible && (point - (a + v * t)).length() <= shape.line_width * z * 0.5 {
-                        c = line;
+                    let alpha = coverage(uv);
+                    let color: [f32; 4] = std::array::from_fn(|channel| {
+                        (0..3)
+                            .map(|i| v[i].color[channel] as f32 / 255.0 * weights[i])
+                            .sum::<f32>()
+                            * alpha
+                    });
+                    let dst = &mut pixels[(y * w + x) as usize];
+                    for channel in 0..4 {
+                        dst[channel] = color[channel] + dst[channel] * (1.0 - color[3]);
                     }
                 }
             }
         }
-        *pixel = image::Rgba(c.to_srgba_unmultiplied());
     }
-    image
+    Some(image::RgbaImage::from_fn(w, h, |x, y| {
+        let p = pixels[(y * w + x) as usize];
+        let rgba = std::array::from_fn(|channel| {
+            (if channel == 3 {
+                p[3]
+            } else if p[3] > 0.0 {
+                p[channel] / p[3]
+            } else {
+                0.0
+            })
+            .clamp(0.0, 1.0)
+            .mul_add(255.0, 0.5) as u8
+        });
+        image::Rgba(rgba)
+    }))
 }
 fn picture_source(size: Vec2, picture: &PictureData) -> Option<image::RgbaImage> {
     let bytes = base64::engine::general_purpose::STANDARD
@@ -606,6 +766,120 @@ fn alignment(name: &str, size: Vec2) -> Vec2 {
         },
     )
 }
+fn affine(q: Vec2, origin: Vec2, scale: [f32; 2], skew: [f32; 2], offset: Vec2) -> Vec2 {
+    let xy = q - origin;
+    origin
+        + offset
+        + Vec2::new(
+            xy.x * scale[0] + xy.y * skew[0].clamp(-80.0, 80.0).to_radians().tan(),
+            xy.y * scale[1] + xy.x * skew[1].clamp(-80.0, 80.0).to_radians().tan(),
+        )
+}
+struct EffectTransform {
+    size: Vec2,
+    origin: Vec2,
+    scale: [f32; 2],
+    skew: [f32; 2],
+    delta: Vec2,
+    frame_pose: Pose,
+}
+impl EffectTransform {
+    fn new(
+        size: Vec2,
+        align: &str,
+        scale: [f32; 2],
+        skew: [f32; 2],
+        transform: (f32, f32, bool),
+        context: (Pose, f32),
+    ) -> Self {
+        let (distance, direction, rotates) = transform;
+        let (pose, z) = context;
+        let frame_pose = if rotates {
+            Pose {
+                rotation: 0.0,
+                flip_h: false,
+                flip_v: false,
+            }
+        } else {
+            pose
+        };
+        let mut out = Self {
+            size,
+            origin: Vec2::ZERO,
+            scale,
+            skew,
+            delta: offset(distance, direction, true, frame_pose, z),
+            frame_pose,
+        };
+        let bounds =
+            out.corners()
+                .into_iter()
+                .map(|q| out.frame(q))
+                .fold(Rect::NOTHING, |mut b, p| {
+                    b.extend_with(p.to_pos2());
+                    b
+                });
+        out.origin = bounds.min.to_vec2() + alignment(align, bounds.size());
+        out
+    }
+    fn corners(&self) -> [Vec2; 4] {
+        [
+            Vec2::ZERO,
+            Vec2::new(self.size.x, 0.0),
+            self.size,
+            Vec2::new(0.0, self.size.y),
+        ]
+    }
+    fn frame(&self, q: Vec2) -> Vec2 {
+        transform(
+            q.to_pos2(),
+            (self.size * 0.5).to_pos2(),
+            self.frame_pose.rotation,
+            self.frame_pose.flip_h,
+            self.frame_pose.flip_v,
+        )
+        .to_vec2()
+    }
+    fn unframe(&self, q: Vec2) -> Vec2 {
+        let center = (self.size * 0.5).to_pos2();
+        let q = transform(q.to_pos2(), center, -self.frame_pose.rotation, false, false);
+        transform(
+            q,
+            center,
+            0.0,
+            self.frame_pose.flip_h,
+            self.frame_pose.flip_v,
+        )
+        .to_vec2()
+    }
+    fn forward(&self, q: Vec2) -> Vec2 {
+        self.unframe(affine(
+            self.frame(q),
+            self.origin,
+            self.scale,
+            self.skew,
+            self.delta,
+        ))
+    }
+    fn inverse(&self, q: Vec2) -> Vec2 {
+        self.unframe(inverse_affine(
+            self.frame(q),
+            self.origin,
+            self.scale,
+            self.skew,
+            self.delta,
+        ))
+    }
+    fn bounds(&self) -> Rect {
+        self.corners()
+            .into_iter()
+            .map(|q| self.forward(q))
+            .fold(Rect::NOTHING, |mut b, p| {
+                b.extend_with(p.to_pos2());
+                b
+            })
+    }
+}
 fn inverse_affine(q: Vec2, origin: Vec2, scale: [f32; 2], skew: [f32; 2], offset: Vec2) -> Vec2 {
     let xy = q - origin - offset;
     let kx = skew[0].clamp(-80.0, 80.0).to_radians().tan();
@@ -653,14 +927,39 @@ fn composite(
         finite_range(size.y, 0.001, 1e8, 1.0),
     );
     let z = finite_range(z, 0.001, 256.0, 1.0);
-    let pad = effects.padding(size, z);
-    let extra = effects.reflection.as_ref().map_or(0.0, |r| {
-        size.y * r.scale[1].abs() + (r.distance + r.blur * 3.0) * z
-    });
-    let bounds = Rect::from_min_max(
-        Pos2::new(-pad, -pad),
-        Pos2::new(size.x + pad, size.y + pad + extra),
-    );
+    let source_bounds = Rect::from_min_size(Pos2::ZERO, size);
+    let mut bounds = source_bounds.expand(2.0);
+    if let Some(s) = &effects.outer_shadow {
+        bounds = bounds.union(
+            EffectTransform::new(
+                size,
+                &s.alignment,
+                s.scale,
+                s.skew,
+                (s.distance, s.direction, s.rotate_with_shape),
+                (pose, z),
+            )
+            .bounds()
+            .expand(s.blur * z * 3.0 + 2.0),
+        );
+    }
+    if let Some(g) = &effects.glow {
+        bounds = bounds.union(source_bounds.expand(g.radius * z * 2.0 + 2.0));
+    }
+    if let Some(r) = &effects.reflection {
+        bounds = bounds.union(
+            EffectTransform::new(
+                size,
+                &r.alignment,
+                r.scale,
+                r.skew,
+                (r.distance, r.direction, r.rotate_with_shape),
+                (pose, z),
+            )
+            .bounds()
+            .expand(r.blur * z * 3.0 + 2.0),
+        );
+    }
     let [w, h] = raster_size(bounds.size());
     let factor = Vec2::new(w as f32 / bounds.width(), h as f32 / bounds.height());
     let local = |x: u32, y: u32| {
@@ -691,10 +990,16 @@ fn composite(
         }
     }
     if let Some(s) = &effects.outer_shadow {
-        let delta = offset(s.distance, s.direction, s.rotate_with_shape, pose, z);
-        let anchor = alignment(&s.alignment, size);
+        let transform = EffectTransform::new(
+            size,
+            &s.alignment,
+            s.scale,
+            s.skew,
+            (s.distance, s.direction, s.rotate_with_shape),
+            (pose, z),
+        );
         let shifted = image::GrayImage::from_fn(w, h, |x, y| {
-            image::Luma([sample(inverse_affine(local(x, y), anchor, s.scale, s.skew, delta))[3]])
+            image::Luma([sample(transform.inverse(local(x, y)))[3]])
         });
         let blurred = image::imageops::fast_blur(&shifted, (s.blur * z * factor.x * 0.5).max(0.01));
         let color = rgba(Some(&s.color), Color32::TRANSPARENT).to_srgba_unmultiplied();
@@ -703,16 +1008,27 @@ fn composite(
         }
     }
     if let Some(r) = &effects.reflection {
-        let delta = offset(r.distance, r.direction, r.rotate_with_shape, pose, z);
-        let anchor = alignment(&r.alignment, size);
+        let transform = EffectTransform::new(
+            size,
+            &r.alignment,
+            r.scale,
+            r.skew,
+            (r.distance, r.direction, r.rotate_with_shape),
+            (pose, z),
+        );
+        let a = r.fade_direction.to_radians();
+        let direction = Vec2::new(a.cos(), a.sin());
+        let corners = transform
+            .corners()
+            .map(|q| transform.frame(transform.forward(q)).dot(direction));
+        let start = corners.into_iter().fold(f32::INFINITY, f32::min);
+        let end = corners.into_iter().fold(f32::NEG_INFINITY, f32::max);
         let reflected = image::RgbaImage::from_fn(w, h, |x, y| {
             let q = local(x, y);
-            let src = inverse_affine(q, anchor, r.scale, r.skew, delta);
+            let src = transform.inverse(q);
             let mut color = sample(src);
-            let a = r.fade_direction.to_radians();
-            let direction = Vec2::new(a.cos(), a.sin());
-            let extent = size.x * direction.x.abs() + size.y * direction.y.abs();
-            let t = ((q - anchor - delta).dot(direction) / extent.max(1.0)).clamp(0.0, 1.0);
+            let t = ((transform.frame(q).dot(direction) - start) / (end - start).max(0.001))
+                .clamp(0.0, 1.0);
             let mix = ((t - r.start_position) / (r.end_position - r.start_position).max(0.001))
                 .clamp(0.0, 1.0);
             color[3] = (color[3] as f32 * (r.start_alpha + (r.end_alpha - r.start_alpha) * mix))
@@ -799,10 +1115,114 @@ pub(super) fn project(q: Pos2, rect: Rect, depth: f32, scene: &Scene3D) -> Pos2 
         + Vec2::new(x * rev.cos() - y * rev.sin(), x * rev.sin() + y * rev.cos())
             * (perspective * zoom)
 }
-fn shade(color: Color32, factor: f32) -> Color32 {
+fn normalized(v: [f32; 3]) -> [f32; 3] {
+    let length = v.iter().map(|v| v * v).sum::<f32>().sqrt().max(0.0001);
+    v.map(|v| v / length)
+}
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a.into_iter().zip(b).map(|(a, b)| a * b).sum()
+}
+fn rotate3(v: [f32; 3], angles: [f32; 3]) -> [f32; 3] {
+    let [lat, lon, rev] = angles.map(finite_angle).map(f32::to_radians);
+    let x = v[0] * lon.cos() + v[2] * lon.sin();
+    let depth = -v[0] * lon.sin() + v[2] * lon.cos();
+    let y = v[1] * lat.cos() - depth * lat.sin();
+    let depth = v[1] * lat.sin() + depth * lat.cos();
+    [
+        x * rev.cos() - y * rev.sin(),
+        x * rev.sin() + y * rev.cos(),
+        depth,
+    ]
+}
+/// A deterministic native lighting model for DrawingML materials. Office's
+/// proprietary rig intensities are not specified by OOXML; preserve the saved
+/// direction/rotation and material response instead of giving every face the
+/// same fixed two-tone shading.
+pub(super) fn surface_color(scene: &Scene3D, color: Color32, normal: [f32; 3]) -> Color32 {
+    if scene.material == "flat" {
+        return color;
+    }
+    let dir = scene.light_direction.as_str();
+    let light = normalized(rotate3(
+        [
+            if dir.contains('l') {
+                -0.8
+            } else if dir.contains('r') {
+                0.8
+            } else {
+                0.0
+            },
+            if dir.contains('t') {
+                -0.8
+            } else if dir.contains('b') {
+                0.8
+            } else {
+                0.0
+            },
+            -1.0,
+        ],
+        scene.light_rotation,
+    ));
+    let normal = normalized(rotate3(normal, scene.rotation));
+    let diffuse = dot(normal, light).max(0.0);
+    let half = normalized([light[0], light[1], light[2] - 1.0]);
+    let (ambient, diffuse_gain, specular, shininess, metallic): (f32, f32, f32, f32, bool) =
+        match scene.material.as_str() {
+            "plastic" | "legacyPlastic" => (0.50, 0.58, 0.45, 30.0, false),
+            "metal" | "legacyMetal" => (0.30, 0.80, 1.10, 42.0, true),
+            "softmetal" => (0.50, 0.62, 0.70, 12.0, true),
+            "powder" | "translucentPowder" => (0.72, 0.38, 0.08, 5.0, false),
+            "dkEdge" => (0.34, 0.70, 0.30, 18.0, false),
+            "softEdge" => (0.72, 0.34, 0.10, 10.0, false),
+            "clear" => (0.38, 0.48, 0.85, 55.0, false),
+            _ => (0.65, 0.48, 0.06, 8.0, false),
+        };
+    let rig_gain = match scene.light_rig.as_str() {
+        "harsh" | "twoPt" => 1.20,
+        "soft" | "balanced" | "threePt" => 1.0,
+        "flat" | "flood" => 0.55,
+        "contrasting" => 1.35,
+        _ => 1.0,
+    };
+    let highlight = dot(normal, half).max(0.0).powf(shininess) * specular * rig_gain;
+    let lighting = ambient + diffuse * diffuse_gain * rig_gain;
     let [r, g, b, a] = color.to_srgba_unmultiplied();
-    let f = |v: u8| (v as f32 * factor).clamp(0.0, 255.0) as u8;
-    Color32::from_rgba_unmultiplied(f(r), f(g), f(b), a)
+    let channel = |value: u8| {
+        let specular_color = if metallic {
+            value as f32 * 0.65 + 255.0 * 0.35
+        } else {
+            255.0
+        };
+        (value as f32 * lighting + specular_color * highlight)
+            .clamp(0.0, 255.0)
+            .round() as u8
+    };
+    Color32::from_rgba_unmultiplied(channel(r), channel(g), channel(b), a)
+}
+
+fn inset_polygon(points: &[Pos2], width: f32) -> Vec<Pos2> {
+    let orientation: f32 = points
+        .iter()
+        .zip(points.iter().cycle().skip(1))
+        .take(points.len())
+        .map(|(a, b)| a.x * b.y - b.x * a.y)
+        .sum();
+    let sign = orientation.signum();
+    let center = points.iter().fold(Vec2::ZERO, |sum, q| sum + q.to_vec2()) / points.len() as f32;
+    points
+        .iter()
+        .enumerate()
+        .map(|(i, &q)| {
+            let before = (q - points[(i + points.len() - 1) % points.len()]).normalized();
+            let after = (points[(i + 1) % points.len()] - q).normalized();
+            let first = Vec2::new(-before.y, before.x) * sign;
+            let second = Vec2::new(-after.y, after.x) * sign;
+            let bisector = (first + second).normalized();
+            let length = (width / bisector.dot(second).max(0.25))
+                .min((center - q.to_vec2()).length() * 0.45);
+            q + bisector * length
+        })
+        .collect()
 }
 pub(super) fn paint_sides(
     p: &egui::Painter,
@@ -849,17 +1269,16 @@ pub(super) fn paint_sides(
     faces.sort_by(|a, b| a.1.total_cmp(&b.1));
     for (i, _) in faces {
         let j = (i + 1) % points.len();
-        let edge = (front[j] - front[i]).normalized();
-        let light = if scene.light_direction.contains('l') {
-            -0.5
-        } else {
-            0.5
-        };
-        let brightness = (0.65 + edge.x * 0.2 + edge.y * light * 0.25).clamp(0.35, 0.95);
+        let edge = (points[j] - points[i]).normalized();
+        let normal = [
+            edge.y * orientation.signum(),
+            -edge.x * orientation.signum(),
+            0.0,
+        ];
         filled_path(
             p,
             &[front[i], rear[i], rear[j], front[j]],
-            shade(base, brightness),
+            surface_color(scene, base, normal),
         );
     }
 }
@@ -886,29 +1305,52 @@ pub(super) fn paint_bevel(
     };
     let width = finite_range(scene.bevel_width, 0.0, 512.0, 0.0) * z;
     if width > 0.0 && scene.bevel_height > 0.0 {
-        let center =
-            points.iter().fold(Vec2::ZERO, |sum, p| sum + p.to_vec2()) / points.len() as f32;
-        let inner: Vec<_> = points
+        let height = finite_range(scene.bevel_height, 0.0, 512.0, 0.0) * z;
+        let steps = if matches!(
+            scene.bevel.as_str(),
+            "circle" | "softRound" | "convex" | "coolSlant"
+        ) {
+            5
+        } else {
+            1
+        };
+        let orientation: f32 = points
             .iter()
-            .map(|&q| {
-                let delta = center - q.to_vec2();
-                q + delta.normalized() * width.min(delta.length() * 0.4)
-            })
-            .collect();
-        for i in 0..points.len() {
-            let j = (i + 1) % points.len();
-            let edge = (points[j] - points[i]).normalized();
-            let factor = (1.0 - edge.x * 0.24 + edge.y * 0.22).clamp(0.5, 1.5);
-            filled_path(
-                p,
-                &[
-                    transform3(points[i]),
-                    transform3(points[j]),
-                    transform3(inner[j]),
-                    transform3(inner[i]),
-                ],
-                shade(fill, factor),
-            );
+            .zip(points.iter().cycle().skip(1))
+            .take(points.len())
+            .map(|(a, b)| a.x * b.y - b.x * a.y)
+            .sum();
+        for band in 0..steps {
+            let start = band as f32 / steps as f32;
+            let end = (band + 1) as f32 / steps as f32;
+            let outer = inset_polygon(points, width * start);
+            let inner = inset_polygon(points, width * end);
+            // Curved bevels progressively turn from the side normal toward the face normal.
+            let phase = (start + end) * 0.5 * std::f32::consts::FRAC_PI_2;
+            let slope = if steps > 1 {
+                phase.cos() * height / width.max(0.001)
+            } else {
+                height / width.max(0.001)
+            };
+            for i in 0..points.len() {
+                let j = (i + 1) % points.len();
+                let edge = (points[j] - points[i]).normalized();
+                let normal = [
+                    edge.y * orientation.signum() * slope,
+                    -edge.x * orientation.signum() * slope,
+                    -1.0,
+                ];
+                filled_path(
+                    p,
+                    &[
+                        transform3(outer[i]),
+                        transform3(outer[j]),
+                        transform3(inner[j]),
+                        transform3(inner[i]),
+                    ],
+                    surface_color(scene, fill, normal),
+                );
+            }
         }
     }
     if scene.contour > 0.0 {
@@ -1026,5 +1468,323 @@ mod tests {
         malformed.camera = "perspectiveFront".into();
         malformed.field_of_view = f32::NAN;
         assert!(project(rect.right_bottom(), rect, f32::INFINITY, &malformed).is_finite());
+    }
+    fn glyph_shape(effect_xml: &str, fill: bool) -> ShapeData {
+        let xml = format!(
+            r#"<sp><spPr><prstGeom prst="rect"/>{}<ln><noFill/></ln>{effect_xml}</spPr><txBody><bodyPr anchor="ctr"/><p><pPr algn="ctr"/><r><rPr sz="1800"><solidFill><srgbClr val="FF0000"/></solidFill></rPr><t>RUST </t></r><r><rPr sz="1800"><solidFill><srgbClr val="0000FF"/></solidFill></rPr><t>TEXT</t></r></p></txBody></sp>"#,
+            if fill {
+                "<solidFill><srgbClr val=\"16A085\"/></solidFill>"
+            } else {
+                "<noFill/>"
+            }
+        );
+        super::super::shape(&ooxml::parse(&xml).unwrap(), &Theme::default(), &mut vec![])
+    }
+    fn rectangle_paths() -> Vec<ShapePath> {
+        vec![ShapePath {
+            points: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            closed: true,
+            fill: true,
+            stroke: true,
+        }]
+    }
+    fn no_pose() -> Pose {
+        Pose {
+            rotation: 0.0,
+            flip_h: false,
+            flip_v: false,
+        }
+    }
+
+    #[test]
+    fn text_only_effects_capture_native_glyphs_colors_and_reflection() {
+        let shape = glyph_shape(
+            r#"<effectLst><reflection sy="-100000" stA="70000" endA="0" dist="38100" dir="5400000"/></effectLst>"#,
+            false,
+        );
+        let original = serde_json::to_string(&shape).unwrap();
+        let context = egui::Context::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            let painter = ctx.debug_painter();
+            let (source, source_bounds) = shape_source(
+                &painter,
+                Vec2::new(180.0, 60.0),
+                &shape,
+                &rectangle_paths(),
+                1.0,
+                no_pose(),
+                &|_| egui::FontFamily::Proportional,
+            )
+            .unwrap();
+            assert!(
+                source
+                    .pixels()
+                    .filter(|p| p[0] > 200 && p[2] < 30 && p[3] > 200)
+                    .count()
+                    > 40
+            );
+            assert!(
+                source
+                    .pixels()
+                    .filter(|p| p[2] > 200 && p[0] < 30 && p[3] > 200)
+                    .count()
+                    > 40
+            );
+            assert!(source.pixels().filter(|p| p[3] == 0).count() > source.len() / 8);
+            let (image, bounds) =
+                composite(source, source_bounds.size(), &shape.effects, no_pose(), 1.0);
+            let reflected = image
+                .pixels
+                .iter()
+                .enumerate()
+                .filter(|(i, p)| {
+                    let y = bounds.top()
+                        + (*i / image.size[0]) as f32 / image.size[1] as f32 * bounds.height();
+                    y > source_bounds.height() && p.a() > 10
+                })
+                .count();
+            assert!(
+                reflected > 80,
+                "glyphs must participate in reflection even without a shape fill"
+            );
+        });
+        assert_eq!(serde_json::to_string(&shape).unwrap(), original);
+    }
+
+    #[test]
+    fn projected_text_and_extrusion_join_the_effect_silhouette() {
+        let shape = glyph_shape(
+            r#"<effectLst><outerShdw blurRad="25400" dist="50800" dir="5400000"><srgbClr val="000000"/></outerShdw><reflection sy="-100000" stA="60000"/></effectLst><scene3d><camera prst="isometricRightUp"/><lightRig rig="threePt" dir="tl"/></scene3d><sp3d extrusionH="254000" prstMaterial="plastic"><bevelT w="38100" h="38100"/></sp3d>"#,
+            true,
+        );
+        let context = egui::Context::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            let (source, bounds) = shape_source(
+                &ctx.debug_painter(),
+                Vec2::new(180.0, 60.0),
+                &shape,
+                &rectangle_paths(),
+                1.0,
+                no_pose(),
+                &|_| egui::FontFamily::Proportional,
+            )
+            .unwrap();
+            assert!(
+                bounds.top() < 0.0,
+                "projected extrusion extends beyond original rectangle"
+            );
+            let color_center = |red: bool| {
+                let points: Vec<_> = source
+                    .enumerate_pixels()
+                    .filter(|(_, _, p)| {
+                        p[3] > 200
+                            && if red {
+                                p[0] > 200 && p[2] < 30
+                            } else {
+                                p[2] > 200 && p[0] < 30
+                            }
+                    })
+                    .map(|(x, y, _)| Vec2::new(x as f32, y as f32))
+                    .collect();
+                assert!(points.len() > 20);
+                points.iter().fold(Vec2::ZERO, |sum, q| sum + *q) / points.len() as f32
+            };
+            let red = color_center(true);
+            let blue = color_center(false);
+            assert!(
+                blue.x > red.x && blue.y < red.y,
+                "glyphs must slope with the projected front face"
+            );
+            let (_, effects_bounds) =
+                composite(source, bounds.size(), &shape.effects, no_pose(), 1.0);
+            assert!(effects_bounds.bottom() > bounds.height() * 1.5);
+        });
+    }
+
+    #[test]
+    fn fixed_reflection_mirrors_rotation_and_keeps_sideways_effect_bounds() {
+        let pose = Pose {
+            rotation: 20.0,
+            flip_h: false,
+            flip_v: false,
+        };
+        let transform = EffectTransform::new(
+            Vec2::new(100.0, 40.0),
+            "bl",
+            [1.0, -1.0],
+            [0.0, 0.0],
+            (3.0, 90.0, false),
+            (pose, 1.0),
+        );
+        let a = Vec2::new(10.0, 20.0);
+        let b = Vec2::new(90.0, 20.0);
+        let source = transform.frame(b) - transform.frame(a);
+        let reflected =
+            transform.frame(transform.forward(b)) - transform.frame(transform.forward(a));
+        assert!(source.y > 0.0 && reflected.y < 0.0);
+        assert!((source.x - reflected.x).abs() < 0.001);
+        assert!((transform.inverse(transform.forward(a)) - a).length() < 0.001);
+        let node = ooxml::parse(r#"<spPr><effectLst><reflection sx="-100000" sy="100000" algn="l" dist="127000" dir="10800000" fadeDir="10800000"/></effectLst></spPr>"#).unwrap();
+        let effects = parse(&node, None, &Theme::default(), &mut vec![]);
+        let (image, bounds) = composite(
+            image::RgbaImage::from_pixel(20, 20, image::Rgba([200, 40, 10, 255])),
+            Vec2::splat(20.0),
+            &effects,
+            no_pose(),
+            1.0,
+        );
+        assert!(bounds.left() <= -30.0);
+        assert!(image.pixels.iter().enumerate().any(|(i, p)| {
+            bounds.left() + (i % image.size[0]) as f32 / image.size[0] as f32 * bounds.width()
+                < -10.0
+                && p.a() > 20
+        }));
+    }
+
+    #[test]
+    fn lighting_material_rotation_and_saved_scene_defaults_are_preserved() {
+        let node = ooxml::parse(r#"<spPr><scene3d><camera prst="orthographicFront"/><lightRig rig="harsh" dir="tl"><rot rev="10800000"/></lightRig></scene3d><sp3d prstMaterial="metal"/></spPr>"#).unwrap();
+        let mut scene = parse(&node, None, &Theme::default(), &mut vec![])
+            .scene
+            .unwrap();
+        assert_eq!(scene.light_rig, "harsh");
+        assert_eq!(scene.light_rotation, [0.0, 0.0, 180.0]);
+        let fill = Color32::from_rgb(22, 160, 133);
+        let normal = [-0.6, -0.6, -1.0];
+        let rotated = surface_color(&scene, fill, normal);
+        scene.light_rotation = [0.0; 3];
+        let facing = surface_color(&scene, fill, normal);
+        assert_ne!(rotated, facing);
+        scene.material = "matte".into();
+        assert_ne!(surface_color(&scene, fill, normal), facing);
+        let mut json = serde_json::to_value(&scene).unwrap();
+        json.as_object_mut().unwrap().remove("light_rig");
+        json.as_object_mut().unwrap().remove("light_rotation");
+        let restored: Scene3D = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.light_rig, "threePt");
+        assert_eq!(restored.light_rotation, [0.0; 3]);
+    }
+
+    #[test]
+    fn software_mesh_edges_do_not_double_blend_translucency() {
+        let mut mesh = egui::Mesh::default();
+        for pos in [
+            Pos2::ZERO,
+            Pos2::new(4.0, 0.0),
+            Pos2::new(4.0, 4.0),
+            Pos2::new(0.0, 4.0),
+        ] {
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos,
+                uv: Pos2::new(0.5, 0.5),
+                color: Color32::from_rgba_unmultiplied(255, 0, 0, 128),
+            });
+        }
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        let bounds = Rect::from_min_size(Pos2::ZERO, Vec2::splat(4.0));
+        let primitive = egui::epaint::ClippedPrimitive {
+            clip_rect: bounds,
+            primitive: egui::epaint::Primitive::Mesh(mesh),
+        };
+        let atlas = egui::epaint::FontImage {
+            size: [1, 1],
+            pixels: vec![1.0],
+        };
+        let image = raster_primitives(&[primitive], &atlas, bounds).unwrap();
+        assert!(
+            image
+                .pixels()
+                .all(|p| p[3] == 128 && p[0] == 255 && p[1] == 0 && p[2] == 0)
+        );
+    }
+    #[test]
+    fn composite_outset_includes_projected_and_rotated_reflections() {
+        let mut shape = glyph_shape(
+            r#"<effectLst><reflection sy="-100000" rotWithShape="0"/></effectLst><scene3d><camera prst="orthographicFront" zoom="400000"/></scene3d>"#,
+            true,
+        );
+        let context = egui::Context::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            for (size, rotation, camera) in [
+                (Vec2::splat(100.0), 0.0, "orthographicFront"),
+                (Vec2::new(400.0, 40.0), 90.0, "perspectiveFront"),
+            ] {
+                shape.effects.scene.as_mut().unwrap().camera = camera.into();
+                let pose = Pose {
+                    rotation,
+                    ..no_pose()
+                };
+                let (source, bounds) = shape_source(
+                    &ctx.debug_painter(),
+                    size,
+                    &shape,
+                    &rectangle_paths(),
+                    1.0,
+                    pose,
+                    &|_| egui::FontFamily::Proportional,
+                )
+                .unwrap();
+                let (_, composed) = composite(source, bounds.size(), &shape.effects, pose, 1.0);
+                let composed = composed.translate(bounds.min.to_vec2());
+                let source_rect = Rect::from_min_size(Pos2::ZERO, size);
+                let radius = size.length() * 0.5 + shape.effects.outset(size, 1.0);
+                let conservative =
+                    Rect::from_center_size(source_rect.center(), Vec2::splat(radius * 2.0));
+                for q in [
+                    composed.left_top(),
+                    composed.right_top(),
+                    composed.right_bottom(),
+                    composed.left_bottom(),
+                ] {
+                    let displayed = transform(q, source_rect.center(), rotation, false, false);
+                    assert!(
+                        conservative.contains(displayed),
+                        "{displayed:?} must remain visible within {conservative:?}"
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn rejected_capture_is_not_retried_every_repaint() {
+        let mut shape = glyph_shape(
+            r#"<effectLst><glow rad="12700"><srgbClr val="00FF00"/></glow></effectLst>"#,
+            false,
+        );
+        shape.paragraphs.clear();
+        let context = egui::Context::default();
+        let mut renderer = EffectRenderer::default();
+        let _ = context.run(egui::RawInput::default(), |ctx| {
+            let p = ctx.debug_painter();
+            let bad_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(f32::INFINITY, 10.0));
+            assert!(
+                !renderer.shape(&p, bad_rect, &shape, &[], (no_pose(), 1.0), &|_| {
+                    egui::FontFamily::Proportional
+                })
+            );
+            assert_eq!(renderer.rejected.len(), 1);
+            let layer = egui::LayerId::new(
+                egui::Order::Background,
+                egui::Id::new("drawing-effect-source"),
+            );
+            ctx.graphics_mut(|graphics| {
+                graphics
+                    .entry(layer)
+                    .add(Rect::EVERYTHING, egui::Shape::Noop);
+            });
+            assert!(
+                !renderer.shape(&p, bad_rect, &shape, &[], (no_pose(), 1.0), &|_| {
+                    egui::FontFamily::Proportional
+                })
+            );
+            assert_eq!(
+                ctx.graphics(|graphics| graphics.get(layer).unwrap().all_entries().len()),
+                1
+            );
+        });
+        renderer.clear();
+        assert!(renderer.rejected.is_empty());
     }
 }

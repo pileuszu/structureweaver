@@ -73,6 +73,44 @@ As of 2026-11-09, source rendering uses Rust exclusively and requires no Microso
 Excel or Office installation. The earlier Excel comparisons are development
 checks against synthetic fixtures, not an application runtime dependency.
 
+## Native effects and automatic layout refinements — 2026-11-09
+
+The expanded `fixtures/fidelity.xlsx` includes 14 effect shapes, text-only and
+rotated reflections, combined 3D/shadow/reflection, three material/lighting cases,
+and dense category/legend examples. Explicit axis visibility, overlay settings
+and string category caches make the generated chart intent unambiguous. The file
+opens in Excel for Mac without a repair warning; source text, numeric values,
+presentation metadata and JSON round-tripping have automated coverage.
+
+The native renderer now captures vector shapes and actual glyphs together,
+projects text with the 3D surface, composes effects over the resulting silhouette,
+and honors screen-space reflection for `rotWithShape="0"`. Regression tests cover
+transparent triangle seams, font-atlas stability, rejected-work caching, rotated
+reflection direction and compound 3D/effect bounds. Material, light direction and
+light rotation affect diffuse/specular face shading and curved bevels.
+
+Category labels use saved rotation, size, interval and offset; automatic labels
+wrap or rotate with measured margins. Legends use measured wrapped heights and
+reflow within manual rectangles. Tests cover endpoint anchoring, overlap, hidden
+tick labels with preserved gridlines, diagonal glyph clearance and old analysis
+defaults. All **110 tests**,
+strict Clippy and formatting checks pass for these rendering changes.
+
+Office-specific light intensities, automatic numeric axis ranges/tick intervals,
+some camera/bevel presets, picture 3D projection and exact theme typography remain
+compatibility limits. These checks demonstrate improved native rendering, not
+pixel identity across arbitrary workbooks.
+
+The application settings window contains the server address, model ID/list and
+connection action, and opens with the Settings button or Command-comma. Native
+UI checks confirmed model discovery and selection; navigation and sheet controls
+are ordinary buttons, with no switch, checkbox or selectable-toggle controls.
+Worksheet visibility actions live in an explicit View menu. The final macOS
+package includes a versioned arm64 DMG, an Applications symlink, installation
+notes and SHA256. The image was mounted read-only, its application signature and
+version checked, and a copy launched independently of the user's active analysis.
+This is an ad hoc signed local preview, without Apple notarization.
+
 ## Local model inference — 2026-11-06
 
 | Case | Actual local inference outcome |

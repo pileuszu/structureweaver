@@ -185,16 +185,53 @@ impl SheetView {
             if ui.small_button("100%").clicked() {
                 self.zoom = 1.0;
             }
-            if (!grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty())
-                && ui
-                    .checkbox(&mut self.show_hidden, "숨김 영역 표시")
-                    .changed()
-            {
-                self.rebuild_axes(grid);
-                jump = true;
-            }
-            if !tables.is_empty() {
-                ui.checkbox(&mut self.show_regions, "분석 영역 표시");
+            if !grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty() || !tables.is_empty() {
+                ui.menu_button("보기", |ui| {
+                    if !grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty() {
+                        if ui
+                            .add_enabled(
+                                !self.show_hidden,
+                                egui::Button::new("숨김 행·열 모두 표시"),
+                            )
+                            .clicked()
+                        {
+                            self.show_hidden = true;
+                            self.rebuild_axes(grid);
+                            jump = true;
+                            ui.close_menu();
+                        }
+                        if ui
+                            .add_enabled(
+                                self.show_hidden,
+                                egui::Button::new("원본 숨김 상태로 복원"),
+                            )
+                            .clicked()
+                        {
+                            self.show_hidden = false;
+                            self.rebuild_axes(grid);
+                            ui.close_menu();
+                        }
+                    }
+                    if !tables.is_empty() {
+                        if !grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty() {
+                            ui.separator();
+                        }
+                        if ui
+                            .add_enabled(!self.show_regions, egui::Button::new("분석 영역 표시"))
+                            .clicked()
+                        {
+                            self.show_regions = true;
+                            ui.close_menu();
+                        }
+                        if ui
+                            .add_enabled(self.show_regions, egui::Button::new("분석 영역 지우기"))
+                            .clicked()
+                        {
+                            self.show_regions = false;
+                            ui.close_menu();
+                        }
+                    }
+                });
             }
         });
         if jump
@@ -295,7 +332,8 @@ impl SheetView {
                         .size(11.5)
                         .color(Color32::from_rgb(145, 98, 18)),
                 );
-                ui.collapsing("표시 정보", |ui| {
+                ui.menu_button("표시 정보", |ui| {
+                    ui.set_max_width(460.0);
                     for feature in &grid.layout.unsupported_features {
                         ui.label(feature);
                     }

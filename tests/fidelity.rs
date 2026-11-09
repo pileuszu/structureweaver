@@ -22,12 +22,25 @@ fn advanced_fixture_preserves_camera_layout_effects_and_original_data() {
         assert_eq!(chart.groups[0].series[0].values.numbers[2], Some(-6.0));
     }
     let layout = document.pages[2].grid.as_ref().unwrap();
+    assert_eq!(layout.layout.drawings.len(), 4);
     let DrawingContent::Chart(manual) = &layout.layout.drawings[1].content else {
         panic!("Expected manual chart")
     };
     assert_eq!(manual.plot_layout.as_ref().unwrap().x, Some(0.14));
     assert_eq!(manual.title_layout.as_ref().unwrap().y, Some(0.03));
     assert_eq!(manual.legend_layout.as_ref().unwrap().y, Some(0.86));
+    let DrawingContent::Chart(rotated) = &layout.layout.drawings[2].content else {
+        panic!("Expected dense category chart")
+    };
+    let axis = rotated
+        .axes
+        .iter()
+        .find(|axis| axis.kind == "catAx")
+        .unwrap();
+    assert_eq!(axis.label_rotation, Some(-45.0));
+    assert_eq!(axis.label_font_size, Some(11.0));
+    assert_eq!(axis.label_skip, Some(2));
+    assert_eq!(rotated.groups[0].series[0].categories.labels.len(), 12);
     let effects = document.pages[3].grid.as_ref().unwrap();
     let shape = |name| {
         let object = effects
@@ -59,6 +72,24 @@ fn advanced_fixture_preserves_camera_layout_effects_and_original_data() {
         shape("Extrusion").effects.scene.as_ref().unwrap().extrusion,
         20.0
     );
+    let text = shape("Text reflection");
+    assert!(text.fill.is_none());
+    assert!(text.effects.reflection.is_some());
+    assert_eq!(text.paragraphs[0].runs[0].text, "Text reflection");
+    let combined = &shape("3D with effects").effects;
+    assert!(combined.scene.is_some());
+    assert!(combined.reflection.is_some());
+    assert!(combined.outer_shadow.is_some());
+    for (name, material) in [
+        ("Matte lighting", "matte"),
+        ("Plastic lighting", "plastic"),
+        ("Metal lighting", "metal"),
+    ] {
+        assert_eq!(
+            shape(name).effects.scene.as_ref().unwrap().material,
+            material
+        );
+    }
     assert_eq!(
         document.pages[0]
             .grid

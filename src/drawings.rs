@@ -554,24 +554,8 @@ fn shape_with_effects(
         })
     });
     let effects = effects::parse(sp, inherited, theme, warnings);
-    if effects.has_raster_effects() && fill.is_none() && node.child("txBody").is_some() {
-        warnings.push("채우기 없는 텍스트 상자의 글자 효과".into());
-    }
     if effects.has_raster_effects() && paths.iter().map(|p| p.points.len()).sum::<usize>() > 512 {
         warnings.push("복잡한 사용자 지정 도형 효과의 해상도 제한".into());
-    }
-    if effects.has_raster_effects()
-        && ln.is_some_and(|n| n.child("headEnd").is_some() || n.child("tailEnd").is_some())
-    {
-        warnings.push("연결선 화살표 끝의 특수 효과".into());
-    }
-    if effects.scene.is_some() && effects.has_raster_effects() {
-        warnings.push("3D 도형에 함께 적용된 2D 효과".into());
-    }
-    if node.child("txBody").is_some()
-        && (effects.reflection.is_some() || effects.soft_edge > 0.0 || effects.scene.is_some())
-    {
-        warnings.push("도형 효과의 텍스트 반사·부드러운 가장자리·3D 투영은 근사 표시됩니다".into());
     }
     if sp.child("custGeom").is_some() && paths.is_empty() {
         warnings.push("수식 또는 원호가 포함된 사용자 지정 도형".into())
@@ -1746,11 +1730,6 @@ impl DrawingRenderer {
         };
         match &object.content {
             DrawingContent::Shape(shape) => {
-                let fill = rgba(shape.fill.as_deref(), Color32::TRANSPARENT);
-                let stroke = Stroke::new(
-                    shape.line_width.clamp(0.0, 1000.0) * z,
-                    rgba(shape.line.as_deref(), Color32::TRANSPARENT),
-                );
                 let paths = if shape.paths.is_empty() {
                     let (mut points, closed) = polygon(&shape.geometry);
                     if matches!(shape.geometry.as_str(), "roundRect" | "flowChartTerminator") {
@@ -1777,79 +1756,12 @@ impl DrawingRenderer {
                 } else {
                     shape.paths.clone()
                 };
-                let rasterized = shape.effects.scene.is_none()
-                    && self.effects.shape(p, rect, shape, &paths, pose, z);
-                if rasterized {
-                    for path in &paths {
-                        if !path.closed && path.points.len() > 1 {
-                            let points: Vec<_> = path.points.iter().copied().map(point).collect();
-                            arrow(p, points[0], points[1], &shape.head, stroke, z);
-                            arrow(
-                                p,
-                                points[points.len() - 1],
-                                points[points.len() - 2],
-                                &shape.tail,
-                                stroke,
-                                z,
-                            );
-                        }
-                    }
-                } else {
-                    for path in paths {
-                        let local_points: Vec<_> = path
-                            .points
-                            .iter()
-                            .map(|xy| {
-                                rect.min + Vec2::new(xy[0] * rect.width(), xy[1] * rect.height())
-                            })
-                            .collect();
-                        let points: Vec<_> = local_points
-                            .iter()
-                            .map(|&q| {
-                                let q = shape
-                                    .effects
-                                    .scene
-                                    .as_ref()
-                                    .map_or(q, |scene| effects::project(q, rect, 0.0, scene));
-                                transform(q, rect.center(), pose.rotation, pose.flip_h, pose.flip_v)
-                            })
-                            .collect();
-                        if path.fill
-                            && path.closed
-                            && let Some(scene) = &shape.effects.scene
-                        {
-                            effects::paint_sides(p, &local_points, rect, scene, fill, pose, z);
-                        }
-                        if path.fill && path.closed {
-                            if let Some(gradient) = &shape.gradient {
-                                filled_gradient(p, &points, &path.points, gradient, rect, pose);
-                            } else {
-                                filled_path(p, &points, fill);
-                            }
-                        }
-                        if path.fill
-                            && path.closed
-                            && let Some(scene) = &shape.effects.scene
-                        {
-                            effects::paint_bevel(p, &local_points, rect, scene, fill, pose, z);
-                        }
-                        if path.stroke {
-                            stroke_path(p, &points, path.closed, stroke, &shape.dash)
-                        }
-                        if !path.closed && points.len() > 1 {
-                            arrow(p, points[0], points[1], &shape.head, stroke, z);
-                            arrow(
-                                p,
-                                points[points.len() - 1],
-                                points[points.len() - 2],
-                                &shape.tail,
-                                stroke,
-                                z,
-                            )
-                        }
-                    }
+                if !self
+                    .effects
+                    .shape(p, rect, shape, &paths, (pose, z), resolve_font)
+                {
+                    Self::shape_body(p, rect, shape, &paths, pose, z, resolve_font);
                 }
-                self.text(p, rect, pose.rotation, shape, z, resolve_font);
             }
             DrawingContent::Picture(pic) => {
                 if self.effects.picture(p, rect, pic, pose, z) {
@@ -1938,8 +1850,77 @@ impl DrawingRenderer {
             }
         }
     }
+    fn shape_body(
+        p: &egui::Painter,
+        rect: Rect,
+        shape: &ShapeData,
+        paths: &[ShapePath],
+        pose: Pose,
+        z: f32,
+        resolve_font: &dyn Fn(&TextRun) -> egui::FontFamily,
+    ) {
+        let fill = rgba(shape.fill.as_deref(), Color32::TRANSPARENT);
+        let stroke = Stroke::new(
+            shape.line_width.clamp(0.0, 1000.0) * z,
+            rgba(shape.line.as_deref(), Color32::TRANSPARENT),
+        );
+        for path in paths {
+            let local_points: Vec<_> = path
+                .points
+                .iter()
+                .map(|xy| rect.min + Vec2::new(xy[0] * rect.width(), xy[1] * rect.height()))
+                .collect();
+            let points: Vec<_> = local_points
+                .iter()
+                .map(|&q| {
+                    let q = shape
+                        .effects
+                        .scene
+                        .as_ref()
+                        .map_or(q, |scene| effects::project(q, rect, 0.0, scene));
+                    transform(q, rect.center(), pose.rotation, pose.flip_h, pose.flip_v)
+                })
+                .collect();
+            if path.fill
+                && path.closed
+                && let Some(scene) = &shape.effects.scene
+            {
+                effects::paint_sides(p, &local_points, rect, scene, fill, pose, z);
+            }
+            if path.fill && path.closed {
+                if let Some(gradient) = &shape.gradient {
+                    filled_gradient(p, &points, &path.points, gradient, rect, pose);
+                } else {
+                    let surface = shape.effects.scene.as_ref().map_or(fill, |scene| {
+                        effects::surface_color(scene, fill, [0.0, 0.0, -1.0])
+                    });
+                    filled_path(p, &points, surface);
+                }
+            }
+            if path.fill
+                && path.closed
+                && let Some(scene) = &shape.effects.scene
+            {
+                effects::paint_bevel(p, &local_points, rect, scene, fill, pose, z);
+            }
+            if path.stroke {
+                stroke_path(p, &points, path.closed, stroke, &shape.dash)
+            }
+            if !path.closed && points.len() > 1 {
+                arrow(p, points[0], points[1], &shape.head, stroke, z);
+                arrow(
+                    p,
+                    points[points.len() - 1],
+                    points[points.len() - 2],
+                    &shape.tail,
+                    stroke,
+                    z,
+                )
+            }
+        }
+        Self::text(p, rect, pose.rotation, shape, z, resolve_font);
+    }
     fn text(
-        &self,
         p: &egui::Painter,
         rect: Rect,
         rotation: f32,
@@ -2030,10 +2011,44 @@ impl DrawingRenderer {
                 _ => inner.left(),
             };
             let origin = Pos2::new(x, y);
-            p.add(
-                egui::epaint::TextShape::new(rotate(origin), galley.clone(), Color32::BLACK)
-                    .with_angle(angle),
-            );
+            if let Some(scene) = &shape.effects.scene {
+                // Project actual glyph vertices with the same camera as the face.
+                // Using the native font atlas retains mixed fonts and text decorations.
+                let text = egui::epaint::TextShape::new(origin, galley.clone(), Color32::BLACK);
+                let meshes = p.ctx().tessellate(
+                    vec![egui::epaint::ClippedShape {
+                        clip_rect: Rect::EVERYTHING,
+                        shape: text.into(),
+                    }],
+                    p.ctx().pixels_per_point(),
+                );
+                for primitive in meshes {
+                    if let egui::epaint::Primitive::Mesh(mut mesh) = primitive.primitive {
+                        for vertex in &mut mesh.vertices {
+                            let local = transform(
+                                vertex.pos,
+                                rect.center(),
+                                shape.text_rotation,
+                                false,
+                                false,
+                            );
+                            vertex.pos = transform(
+                                effects::project(local, rect, 0.0, scene),
+                                rect.center(),
+                                rotation,
+                                false,
+                                false,
+                            );
+                        }
+                        p.add(egui::Shape::mesh(mesh));
+                    }
+                }
+            } else {
+                p.add(
+                    egui::epaint::TextShape::new(rotate(origin), galley.clone(), Color32::BLACK)
+                        .with_angle(angle),
+                );
+            }
             y += galley.size().y;
         }
     }

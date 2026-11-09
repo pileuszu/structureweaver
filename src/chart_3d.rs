@@ -253,24 +253,6 @@ fn draw_faces(p: &egui::Painter, camera: &Camera, faces: &mut [Face], z: f32) {
         }
     }
 }
-fn category_indices(chart: &Chart) -> Vec<usize> {
-    let count = chart
-        .groups
-        .iter()
-        .flat_map(|g| &g.series)
-        .map(|s| s.values.len())
-        .max()
-        .unwrap_or(0);
-    (0..count)
-        .filter(|i| {
-            chart
-                .groups
-                .iter()
-                .flat_map(|g| &g.series)
-                .any(|s| *i < s.values.len() && !hidden(s, *i))
-        })
-        .collect()
-}
 pub(super) fn paint(p: &egui::Painter, rect: Rect, chart: &Chart, z: f32) {
     if !rect.is_positive() || chart.groups.is_empty() {
         return;
@@ -379,21 +361,23 @@ pub(super) fn paint(p: &egui::Painter, rect: Rect, chart: &Chart, z: f32) {
                 } else {
                     Vec2::new(-5. * z, 0.)
                 };
-            text(
-                p,
-                pos,
-                if primary.horizontal {
-                    Align2::CENTER_TOP
-                } else {
-                    Align2::RIGHT_CENTER
-                },
-                &format_value(
-                    value,
-                    axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
-                ),
-                9. * z,
-                Color32::from_gray(64),
-            );
+            if labels_visible(axis) {
+                text(
+                    p,
+                    pos,
+                    if primary.horizontal {
+                        Align2::CENTER_TOP
+                    } else {
+                        Align2::RIGHT_CENTER
+                    },
+                    &format_value(
+                        value,
+                        axis.map(|a| a.number_format.as_str()).unwrap_or_default(),
+                    ),
+                    axis_font(axis, z),
+                    Color32::from_gray(64),
+                );
+            }
         }
     }
     let mut labels = vec![];
@@ -571,37 +555,51 @@ pub(super) fn paint(p: &egui::Painter, rect: Rect, chart: &Chart, z: f32) {
     }
     draw_faces(p, &camera, &mut faces, z);
     let xaxis = category_axis(chart, primary);
-    if !xaxis.is_some_and(|a| a.hidden) {
-        let longest = primary
-            .series
-            .iter()
-            .flat_map(|s| categories.iter().map(move |i| s.categories.label(*i)))
-            .map(|s| measured(p, &s, 9. * z).x + 8. * z)
-            .fold(30. * z, f32::max);
-        let stride = count.div_ceil((rect.width() / longest).max(1.) as usize);
-        for (position, &i) in categories.iter().enumerate().step_by(stride) {
+    if labels_visible(xaxis) {
+        let names = category_names(primary, &categories);
+        let edge = |t| {
+            if primary.horizontal {
+                V3::new(0., t, 1. - back)
+            } else {
+                V3::new(t, 0., 1. - back)
+            }
+        };
+        let projected = camera.point(edge(1.)) - camera.point(edge(0.));
+        let length = if primary.horizontal {
+            projected.y.abs()
+        } else {
+            projected.x.abs()
+        };
+        let layout = category_layout(
+            p,
+            &names,
+            xaxis,
+            primary.horizontal,
+            length,
+            if primary.horizontal {
+                rect.width() * 0.32
+            } else {
+                rect.height() * 0.40
+            },
+            z,
+        );
+        for (position, galley) in layout.galleys.iter().enumerate().step_by(layout.stride) {
             let mut t = (position as f32 + 0.5) / count as f32;
             if xaxis.is_some_and(|a| a.reversed) {
                 t = 1. - t;
             }
-            let label = primary
-                .series
-                .iter()
-                .map(|s| s.categories.label(i))
-                .find(|s| !s.is_empty())
-                .unwrap_or_else(|| (i + 1).to_string());
-            let point = if primary.horizontal {
-                V3::new(0., t, 1. - back)
+            let gap = label_gap(xaxis, z);
+            let offset = if primary.horizontal {
+                Vec2::new(-gap, 0.)
             } else {
-                V3::new(t, 0., 1. - back)
+                Vec2::new(0., gap)
             };
-            text(
+            paint_category_label(
                 p,
-                camera.point(point) + Vec2::new(0., 5. * z),
-                Align2::CENTER_TOP,
-                &label,
-                9. * z,
-                Color32::from_gray(64),
+                camera.point(edge(t)) + offset,
+                galley.clone(),
+                layout.angle,
+                primary.horizontal,
             );
         }
     }

@@ -30,6 +30,17 @@ for row in [
     ('Quarter 3', -6, 16, 30), ('Quarter 4', 28, 35, 38),
 ]:
     data.append(row)
+# Dense category/legend examples exercise measured text layout.
+for col, heading in enumerate([
+    'Reporting period', 'Northern territory — recurring service revenue',
+    'Southern territory — new customer acquisition revenue',
+    'Consolidated forward outlook — revised forecast',
+], 6):
+    data.cell(1, col, heading)
+for row in range(2, 14):
+    data.cell(row, 6, f'2026 month {row - 1:02d} reporting period')
+    for col in range(7, 10):
+        data.cell(row, col, row * (col - 3) + (row % 3) * 5)
 for cell in data[1]:
     cell.font = Font(name='Arial', bold=True)
 
@@ -87,13 +98,39 @@ for is_manual, anchor in [(False, 'A4'), (True, 'A25')]:
         chart.legend.layout = Layout(manualLayout=ManualLayout(xMode='edge', yMode='edge', x=0.23, y=0.86, w=0.65, h=0.10))
     layout.add_chart(chart, anchor)
 
+for title, anchor, width in [
+    ('Saved 45° category labels · every second period', 'A46', 23),
+    ('Wrapped legend and automatic labels', 'A68', 19),
+]:
+    chart = BarChart()
+    chart.title = title
+    chart.add_data(Reference(data, min_col=7, max_col=9, min_row=1, max_row=13), titles_from_data=True)
+    chart.set_categories(Reference(data, min_col=6, min_row=2, max_row=13))
+    chart.width, chart.height = width, 13
+    chart.x_axis.title, chart.y_axis.title = 'Reporting period', 'Revenue'
+    chart.legend.position = 'r'
+    layout.add_chart(chart, anchor)
+
 effects = sheet('Effects', 'DRAWING EFFECTS · SHADOW · GLOW · REFLECTION · 3D')
 # Seed a drawing relationship; add custom DrawingML objects to this part below.
 seed = BarChart()
 seed.title = 'Effects stay anchored while scrolling'
 seed.add_data(Reference(data, min_col=2, min_row=1, max_row=5), titles_from_data=True)
 seed.width, seed.height = 15, 8
-effects.add_chart(seed, 'A30')
+effects.add_chart(seed, 'A65')
+# Explicit display settings avoid relying on application-specific defaults.
+for page in wb:
+    for chart in page._charts:
+        if chart.title is not None:
+            chart.title.overlay = False
+        if chart.legend is not None:
+            chart.legend.overlay = False
+        for name, position in [('x_axis', 'b'), ('y_axis', 'l')]:
+            axis = getattr(chart, name, None)
+            if axis is not None:
+                axis.axPos = position
+                axis.delete = False
+                axis.tickLblPos = 'nextTo'
 wb.active = wb.index(ws)
 buffer = BytesIO()
 wb.save(buffer)
@@ -115,22 +152,57 @@ for index in range(1, 7):
     chart.insert(list(chart).index(chart.find(f'{{{C}}}plotArea')), view)
     parts[part] = ET.tostring(chart_root, encoding='utf-8', xml_declaration=True)
 
+# openpyxl emits numeric category references for text cells. Use string
+# references with caches so Office and the native parser see the same labels.
+from openpyxl.utils.cell import range_boundaries
+for part in list(parts):
+    if not part.startswith('xl/charts/chart') or not part.endswith('.xml'):
+        continue
+    chart_root = ET.fromstring(parts[part])
+    for cat in chart_root.findall(f'.//{{{C}}}cat'):
+        reference = cat.find(f'{{{C}}}numRef')
+        if reference is None:
+            continue
+        formula = reference.find(f'{{{C}}}f').text
+        sheet_name, cells = formula.rsplit('!', 1)
+        min_col, min_row, max_col, max_row = range_boundaries(cells)
+        values = [wb[sheet_name.strip("'")].cell(row, col).value
+                  for row in range(min_row, max_row + 1)
+                  for col in range(min_col, max_col + 1)]
+        if not all(isinstance(value, str) for value in values):
+            continue
+        reference.tag = f'{{{C}}}strRef'
+        cache = ET.SubElement(reference, f'{{{C}}}strCache')
+        ET.SubElement(cache, f'{{{C}}}ptCount', val=str(len(values)))
+        for i, value in enumerate(values):
+            pt = ET.SubElement(cache, f'{{{C}}}pt', idx=str(i))
+            ET.SubElement(pt, f'{{{C}}}v').text = value
+    parts[part] = ET.tostring(chart_root, encoding='utf-8', xml_declaration=True)
+
+# Saved category typography must survive parsing and control the native layout.
+A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+chart_root = ET.fromstring(parts['xl/charts/chart9.xml'])
+axis = chart_root.find(f'.//{{{C}}}catAx')
+axis.insert(list(axis).index(axis.find(f'{{{C}}}crossAx')), ET.fromstring(f'<c:txPr xmlns:c="{C}" xmlns:a="{A}"><a:bodyPr rot="-2700000"/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1100"/></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>'))
+axis.append(ET.fromstring(f'<c:tickLblSkip xmlns:c="{C}" val="2"/>'))
+parts['xl/charts/chart9.xml'] = ET.tostring(chart_root, encoding='utf-8', xml_declaration=True)
+
 XDR = 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing'
 A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
 ET.register_namespace('xdr', XDR)
 ET.register_namespace('a', A)
 root = ET.fromstring(parts['xl/drawings/drawing3.xml'])
-def shape(idx, label, col, row, extra):
+def shape(idx, label, col, row, extra, *, fill=True, rotation=0):
     return ET.fromstring(f'''<xdr:oneCellAnchor xmlns:xdr="{XDR}" xmlns:a="{A}">
     <xdr:from><xdr:col>{col}</xdr:col><xdr:colOff>152400</xdr:colOff><xdr:row>{row}</xdr:row><xdr:rowOff>152400</xdr:rowOff></xdr:from>
     <xdr:ext cx="2286000" cy="914400"/>
     <xdr:sp><xdr:nvSpPr><xdr:cNvPr id="{idx}" name="{label}"/><xdr:cNvSpPr/></xdr:nvSpPr>
-    <xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="2286000" cy="914400"/></a:xfrm>
+    <xdr:spPr><a:xfrm rot="{rotation}"><a:off x="0" y="0"/><a:ext cx="2286000" cy="914400"/></a:xfrm>
     <a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>
-    <a:solidFill><a:srgbClr val="16A085"/></a:solidFill>
-    <a:ln w="19050"><a:solidFill><a:srgbClr val="087F6B"/></a:solidFill></a:ln>{extra}</xdr:spPr>
+    {'<a:solidFill><a:srgbClr val="16A085"/></a:solidFill>' if fill else '<a:noFill/>'}
+    {'<a:ln w="19050"><a:solidFill><a:srgbClr val="087F6B"/></a:solidFill></a:ln>' if fill else '<a:ln><a:noFill/></a:ln>'}{extra}</xdr:spPr>
     <xdr:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/>
-    <a:r><a:rPr sz="1400" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="Arial"/></a:rPr><a:t>{label}</a:t></a:r>
+    <a:r><a:rPr sz="1400" b="1"><a:solidFill><a:srgbClr val="{'FFFFFF' if fill else '18344B'}"/></a:solidFill><a:latin typeface="Arial"/></a:rPr><a:t>{label}</a:t></a:r>
     <a:endParaRPr/></a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:oneCellAnchor>''')
 
 examples = [
@@ -145,6 +217,18 @@ examples = [
 ]
 for idx, (label, col, row, extra) in enumerate(examples, 100):
     root.append(shape(idx, label, col, row, extra))
+reflection = '<a:reflection blurRad="12700" stA="65000" endA="0" endPos="100000" dist="38100" dir="5400000" fadeDir="5400000" sx="100000" sy="-100000" algn="bl" rotWithShape="0"/>'
+root.append(shape(120, 'Text reflection', 0, 30, f'<a:effectLst>{reflection}</a:effectLst>', fill=False))
+root.append(shape(121, 'Rotated reflection', 4, 30, f'<a:effectLst>{reflection}</a:effectLst>', rotation=1200000))
+root.append(shape(122, '3D with effects', 8, 30,
+    f'<a:effectLst>{reflection}<a:outerShdw blurRad="50800" dist="63500" dir="2700000"><a:srgbClr val="000000"><a:alpha val="35000"/></a:srgbClr></a:outerShdw></a:effectLst>'
+    '<a:scene3d><a:camera prst="isometricRightUp"/><a:lightRig rig="threePt" dir="tl"/></a:scene3d><a:sp3d extrusionH="152400" prstMaterial="plastic"><a:bevelT w="50800" h="50800" prst="circle"/></a:sp3d>'))
+for idx, material, direction, rotation, col in [
+    (123, 'matte', 'tl', 0, 0), (124, 'plastic', 'br', 0, 4), (125, 'metal', 'tl', 10800000, 8),
+]:
+    root.append(shape(idx, f'{material.title()} lighting', col, 43,
+        f'<a:scene3d><a:camera prst="isometricRightUp"/><a:lightRig rig="threePt" dir="{direction}"><a:rot lat="0" lon="0" rev="{rotation}"/></a:lightRig></a:scene3d>'
+        f'<a:sp3d extrusionH="254000" prstMaterial="{material}"><a:bevelT w="76200" h="76200" prst="circle"/></a:sp3d>'))
 parts['xl/drawings/drawing3.xml'] = ET.tostring(root, encoding='utf-8', xml_declaration=True)
 out = ROOT / 'fixtures/fidelity.xlsx'
 with ZipFile(out, 'w', ZIP_DEFLATED) as z:
