@@ -13,7 +13,7 @@
 | `drawings.rs` / `ooxml.rs` | Bounded OPC relationships, anchored shapes/groups/images/VML appearance, text and native drawing renderer |
 | `chart_3d.rs` | Depth-sorted 3D chart meshes, camera projection and bounded scene geometry |
 | `drawing_effects.rs` | Bounded alpha-mask compositing for shadows, glow, soft edges and reflection; projected shape depth/bevel |
-| `sheet_view.rs` | Read-only native worksheet canvas with source fonts, geometry, merges, frozen panes and viewport culling |
+| `sheet_view.rs` | Edge-to-edge read-only native worksheet canvas with source fonts, geometry, merges, frozen panes and viewport culling; controls are hosted in the workspace sidebar |
 | `render.rs` | Unicode text and cell-type overlay PNGs with global row/column labels |
 | `llama.rs` | Local-only blocking HTTP transport, model discovery, vision + JSON schema requests, bounded errors/timeouts |
 | `analysis.rs` | Tile scheduling, structured decisions, validation/retry, whole-sheet reconciliation, coverage, hierarchy |

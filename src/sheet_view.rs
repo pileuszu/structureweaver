@@ -63,6 +63,198 @@ impl SheetView {
         }
     }
 
+    /// Worksheet commands live in the workspace panel, leaving the canvas edge-to-edge.
+    pub fn controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        page_key: &str,
+        grid: &Grid,
+        selection: (&mut u32, &mut u32),
+        tables: &[&Table],
+    ) {
+        // The panel precedes the canvas in the frame. Wait for show() to prepare
+        // a newly selected sheet rather than using the previous sheet's axes/fonts.
+        let ready = self.page == page_key;
+        let (selected_row, selected_col) = selection;
+        ui.add_enabled_ui(ready, |ui| {
+            ui.horizontal(|ui| {
+                let bounds = merge_at(grid, *selected_row, *selected_col).unwrap_or(Bounds {
+                    top: *selected_row,
+                    left: *selected_col,
+                    bottom: *selected_row,
+                    right: *selected_col,
+                });
+                ui.menu_button(format!("셀 {}", address(bounds.top, bounds.left)), |ui| {
+                    ui.set_max_width(420.0);
+                    ui.label(RichText::new("원본 셀 · 읽기 전용").strong());
+                    egui::ScrollArea::vertical()
+                        .id_salt("source-cell-information")
+                        .max_height(210.0)
+                        .show(ui, |ui| {
+                            if let Some(cell) = grid.cell(bounds.top, bounds.left) {
+                                if let Some(formula) = &cell.formula {
+                                    ui.label(RichText::new("수식").small().color(Color32::GRAY));
+                                    ui.add(egui::Label::new(format!("={formula}")).wrap());
+                                    ui.separator();
+                                }
+                                ui.label(RichText::new("값").small().color(Color32::GRAY));
+                                ui.add(
+                                    egui::Label::new(if cell.value.is_empty() {
+                                        "빈 셀"
+                                    } else {
+                                        &cell.value
+                                    })
+                                    .wrap(),
+                                );
+                            } else {
+                                ui.label("빈 셀");
+                            }
+                        });
+                });
+                ui.menu_button("이동", |ui| {
+                    let mut jump = false;
+                    ui.horizontal(|ui| {
+                        ui.label("행");
+                        jump |= ui
+                            .add(
+                                egui::DragValue::new(selected_row)
+                                    .range(1..=self.rows.count().max(1))
+                                    .speed(1),
+                            )
+                            .changed();
+                        ui.label("열");
+                        jump |= ui
+                            .add(
+                                egui::DragValue::new(selected_col)
+                                    .range(1..=self.cols.count().max(1))
+                                    .speed(1),
+                            )
+                            .changed();
+                    });
+                    if ui.button("선택한 셀로 이동").clicked() {
+                        jump = true;
+                        ui.close_menu();
+                    }
+                    if jump
+                        && !self.show_hidden
+                        && (grid.hidden_rows.contains(selected_row)
+                            || grid.hidden_cols.contains(selected_col))
+                    {
+                        self.show_hidden = true;
+                        self.rebuild_axes(grid);
+                    }
+                    self.scroll_to_selection |= jump;
+                });
+            });
+            ui.horizontal(|ui| {
+                let mut percent = (self.zoom * 100.0).round();
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut percent)
+                            .range(35.0..=200.0)
+                            .suffix("%")
+                            .speed(5.0),
+                    )
+                    .changed()
+                {
+                    self.zoom = percent / 100.0;
+                }
+                if ui.small_button("100%").clicked() {
+                    self.zoom = 1.0;
+                }
+                if !grid.hidden_rows.is_empty()
+                    || !grid.hidden_cols.is_empty()
+                    || !tables.is_empty()
+                {
+                    ui.menu_button("보기", |ui| {
+                        if !grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty() {
+                            if ui
+                                .add_enabled(
+                                    !self.show_hidden,
+                                    egui::Button::new("숨김 행·열 모두 표시"),
+                                )
+                                .clicked()
+                            {
+                                self.show_hidden = true;
+                                self.rebuild_axes(grid);
+                                self.scroll_to_selection = true;
+                                ui.close_menu();
+                            }
+                            if ui
+                                .add_enabled(
+                                    self.show_hidden,
+                                    egui::Button::new("원본 숨김 상태로 복원"),
+                                )
+                                .clicked()
+                            {
+                                self.show_hidden = false;
+                                self.rebuild_axes(grid);
+                                ui.close_menu();
+                            }
+                        }
+                        if !tables.is_empty() {
+                            if !grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty() {
+                                ui.separator();
+                            }
+                            if ui
+                                .add_enabled(
+                                    !self.show_regions,
+                                    egui::Button::new("분석 영역 표시"),
+                                )
+                                .clicked()
+                            {
+                                self.show_regions = true;
+                                ui.close_menu();
+                            }
+                            if ui
+                                .add_enabled(
+                                    self.show_regions,
+                                    egui::Button::new("분석 영역 지우기"),
+                                )
+                                .clicked()
+                            {
+                                self.show_regions = false;
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                }
+            });
+            if !grid.layout.unsupported_features.is_empty()
+                || !self.fonts.missing.is_empty()
+                || !self.conditional.warnings.is_empty()
+            {
+                ui.menu_button(
+                    RichText::new("표시 정보").color(Color32::from_rgb(145, 98, 18)),
+                    |ui| {
+                        ui.set_max_width(420.0);
+                        egui::ScrollArea::vertical()
+                            .max_height(240.0)
+                            .show(ui, |ui| {
+                                for feature in &grid.layout.unsupported_features {
+                                    ui.label(feature);
+                                }
+                                for feature in &self.conditional.warnings {
+                                    ui.label(feature);
+                                }
+                                if !self.fonts.missing.is_empty() {
+                                    ui.label(format!(
+                                        "설치되지 않은 원본 글꼴을 대체했습니다: {}",
+                                        self.fonts
+                                            .missing
+                                            .iter()
+                                            .cloned()
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    ));
+                                }
+                            });
+                    },
+                );
+            }
+        });
+    }
+
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -110,6 +302,8 @@ impl SheetView {
                 self.display_cells.insert((row, col), cell);
             }
             self.show_hidden = false;
+            self.rows = Axis::default();
+            self.cols = Axis::default();
             self.rebuild_axes(grid);
             self.previous_selection = (0, 0);
             self.scroll_to_selection = true;
@@ -150,98 +344,6 @@ impl SheetView {
                 self.rebuild_axes(grid);
             }
         }
-        let mut jump = false;
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("원본 시트").color(GREEN));
-            ui.label("행");
-            jump |= ui
-                .add(
-                    egui::DragValue::new(selected_row)
-                        .range(1..=self.rows.count().max(1))
-                        .speed(1),
-                )
-                .changed();
-            ui.label("열");
-            jump |= ui
-                .add(
-                    egui::DragValue::new(selected_col)
-                        .range(1..=self.cols.count().max(1))
-                        .speed(1),
-                )
-                .changed();
-            ui.separator();
-            let mut percent = (self.zoom * 100.0).round();
-            if ui
-                .add(
-                    egui::DragValue::new(&mut percent)
-                        .range(35.0..=200.0)
-                        .suffix("%")
-                        .speed(5.0),
-                )
-                .changed()
-            {
-                self.zoom = percent / 100.0;
-            }
-            if ui.small_button("100%").clicked() {
-                self.zoom = 1.0;
-            }
-            if !grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty() || !tables.is_empty() {
-                ui.menu_button("보기", |ui| {
-                    if !grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty() {
-                        if ui
-                            .add_enabled(
-                                !self.show_hidden,
-                                egui::Button::new("숨김 행·열 모두 표시"),
-                            )
-                            .clicked()
-                        {
-                            self.show_hidden = true;
-                            self.rebuild_axes(grid);
-                            jump = true;
-                            ui.close_menu();
-                        }
-                        if ui
-                            .add_enabled(
-                                self.show_hidden,
-                                egui::Button::new("원본 숨김 상태로 복원"),
-                            )
-                            .clicked()
-                        {
-                            self.show_hidden = false;
-                            self.rebuild_axes(grid);
-                            ui.close_menu();
-                        }
-                    }
-                    if !tables.is_empty() {
-                        if !grid.hidden_rows.is_empty() || !grid.hidden_cols.is_empty() {
-                            ui.separator();
-                        }
-                        if ui
-                            .add_enabled(!self.show_regions, egui::Button::new("분석 영역 표시"))
-                            .clicked()
-                        {
-                            self.show_regions = true;
-                            ui.close_menu();
-                        }
-                        if ui
-                            .add_enabled(self.show_regions, egui::Button::new("분석 영역 지우기"))
-                            .clicked()
-                        {
-                            self.show_regions = false;
-                            ui.close_menu();
-                        }
-                    }
-                });
-            }
-        });
-        if jump
-            && !self.show_hidden
-            && (grid.hidden_rows.contains(selected_row) || grid.hidden_cols.contains(selected_col))
-        {
-            self.show_hidden = true;
-            self.rebuild_axes(grid);
-        }
-        self.scroll_to_selection |= jump;
         let mut extent = Vec2::ZERO;
         for object in &grid.layout.drawings {
             let rect = self.drawing_rect(&object.anchor, Pos2::ZERO, 1.0);
@@ -253,6 +355,10 @@ impl SheetView {
             };
             extent = extent.max(rect.max.to_vec2() + Vec2::splat(outset + rotation));
         }
+        // Empty worksheet cells fill the viewport too. Extending display axes
+        // never creates source cells or changes the analysis bounds.
+        extent = extent
+            .max((ui.available_size() - Vec2::new(HEADER_W, HEADER_H)).max(Vec2::ZERO) / self.zoom);
         self.rows.extend_until(extent.y, 1_048_576, |row| {
             if !self.show_hidden && grid.hidden_rows.contains(&row) {
                 0.0
@@ -286,91 +392,19 @@ impl SheetView {
             bottom: *selected_row,
             right: *selected_col,
         });
-        let cell = self.cell(grid, selected_bounds.top, selected_bounds.left);
-        egui::Frame::NONE
-            .fill(Color32::WHITE)
-            .stroke(Stroke::new(1.0_f32, GRID))
-            .inner_margin(egui::Margin::symmetric(9, 6))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_sized(
-                        [70.0, 20.0],
-                        egui::Label::new(
-                            RichText::new(address(selected_bounds.top, selected_bounds.left))
-                                .monospace()
-                                .color(GREEN),
-                        ),
-                    );
-                    ui.separator();
-                    ui.label(RichText::new("ƒx").color(Color32::GRAY));
-                    let text = cell
-                        .map(|c| {
-                            c.formula
-                                .as_ref()
-                                .map(|f| format!("={f}"))
-                                .unwrap_or_else(|| c.value.clone())
-                        })
-                        .unwrap_or_default();
-                    ui.add(
-                        egui::Label::new(if text.is_empty() {
-                            " ".into()
-                        } else {
-                            text.clone()
-                        })
-                        .truncate(),
-                    )
-                    .on_hover_text(text);
-                });
-            });
-        if !grid.layout.unsupported_features.is_empty()
-            || !self.fonts.missing.is_empty()
-            || !self.conditional.warnings.is_empty()
-        {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new("일부 원본 표시가 다를 수 있어요")
-                        .size(11.5)
-                        .color(Color32::from_rgb(145, 98, 18)),
-                );
-                ui.menu_button("표시 정보", |ui| {
-                    ui.set_max_width(460.0);
-                    for feature in &grid.layout.unsupported_features {
-                        ui.label(feature);
-                    }
-                    for feature in &self.conditional.warnings {
-                        ui.label(feature);
-                    }
-                    if !self.fonts.missing.is_empty() {
-                        ui.label(format!(
-                            "설치되지 않은 원본 글꼴을 대체했습니다: {}",
-                            self.fonts
-                                .missing
-                                .iter()
-                                .cloned()
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ));
-                    }
-                });
-            });
-        }
-        ui.add_space(4.0);
         if grid.layout.chart_sheet {
             let (rect, _) =
-                ui.allocate_exact_size(ui.available_size().max(Vec2::splat(50.0)), Sense::hover());
+                ui.allocate_exact_size(ui.available_size().max(Vec2::splat(1.0)), Sense::hover());
             let painter = ui.painter_at(rect);
             for object in &grid.layout.drawings {
-                self.drawings.paint_with_fonts(
-                    &painter,
-                    rect.shrink(10.0),
-                    object,
-                    self.zoom,
-                    &|run| self.fonts.family(&drawing_text_style(run)),
-                );
+                self.drawings
+                    .paint_with_fonts(&painter, rect, object, self.zoom, &|run| {
+                        self.fonts.family(&drawing_text_style(run))
+                    });
             }
             return;
         }
-        let available_height = ui.available_height().max(160.0);
+        let available_height = ui.available_height().max(1.0);
         let z = self.zoom;
         let full = Vec2::new(
             HEADER_W + self.cols.total() * z,
@@ -655,6 +689,7 @@ impl SheetView {
         self.rows = Axis::new(
             grid.rows
                 .max(40)
+                .max(self.rows.count())
                 .max(drawing_rows)
                 .max(conditional_rows)
                 .min(1_048_576),
@@ -675,6 +710,7 @@ impl SheetView {
         self.cols = Axis::new(
             grid.cols
                 .max(16)
+                .max(self.cols.count())
                 .max(drawing_cols)
                 .max(conditional_cols)
                 .min(16_384),
@@ -1778,6 +1814,35 @@ mod tests {
         assert_eq!(axis.at(21.0), 3);
         assert_eq!(axis.interval(3), (20.0, 20.0));
         assert_eq!(axis.total(), 60.0);
+    }
+    #[test]
+    fn blank_viewport_cells_remain_reachable_after_visibility_and_font_changes() {
+        let grid = Grid {
+            rows: 4,
+            cols: 3,
+            hidden_rows: vec![2],
+            hidden_cols: vec![3],
+            ..Default::default()
+        };
+        let original = serde_json::to_value(&grid).unwrap();
+        let mut view = SheetView::new(Default::default());
+        view.rebuild_axes(&grid);
+        view.rows.extend_until(3000.0, 1_048_576, |_| 15.0);
+        view.cols.extend_until(5000.0, 16_384, |_| 50.0);
+        let selected = (100, 60);
+        for show_hidden in [true, false] {
+            view.show_hidden = show_hidden;
+            view.digit_width = 7.0;
+            view.rebuild_axes(&grid);
+            let (y, height) = view.rows.interval(selected.0);
+            let (x, width) = view.cols.interval(selected.1);
+            assert!(height > 0.0 && width > 0.0);
+            assert_eq!(view.rows.at(y + height / 2.0), selected.0);
+            assert_eq!(view.cols.at(x + width / 2.0), selected.1);
+            assert_eq!(view.rows.size(2) > 0.0, show_hidden);
+            assert_eq!(view.cols.size(3) > 0.0, show_hidden);
+        }
+        assert_eq!(serde_json::to_value(&grid).unwrap(), original);
     }
     #[test]
     fn border_segments_are_clipped_before_generating_dashes() {

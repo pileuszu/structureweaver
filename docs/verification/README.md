@@ -111,6 +111,31 @@ notes and SHA256. The image was mounted read-only, its application signature and
 version checked, and a copy launched independently of the user's active analysis.
 This is an ad hoc signed local preview, without Apple notarization.
 
+## Full worksheet canvas — 2026-11-09
+
+Source view now uses the complete central panel with zero outer margins. The
+sheet heading, overview, formula strip and compatibility notices moved into
+workspace-panel tools; selection details include both formula and stored value.
+Analysis structure and incomplete-coverage navigation remain available there.
+The separate Settings window keeps connection controls out of the worksheet.
+This follows GridCraft's separation of the grid from surrounding panels while
+retaining command menus instead of switches or checkbox controls.
+
+A separately launched 0.1.2 macOS preview with `fixtures/styled.xlsx` confirmed
+that column headers start at the panel boundary and the worksheet reaches the
+status bar without an intervening heading or margin. The accessibility tree
+exposes sheet navigation and tools as buttons, alongside the zoom stepper.
+The running user analysis was left untouched. Source view retains workbook
+preferences, including disabled gridlines in this fixture; display axes extend
+to fill the viewport without inserting source cells. A regression test verifies
+that blank viewport cells remain reachable after hidden-axis visibility and font
+geometry changes, while source data stays unchanged. Explicit cell jumps reveal
+hidden coordinates even when the selected address did not change.
+
+All **111 tests**, strict Clippy and formatting checks pass. The arm64 0.1.2 DMG
+was verified, mounted read-only, and its bundled executable version and signature
+checked. It remains an ad hoc signed local release without Apple notarization.
+
 ## Local model inference — 2026-11-06
 
 | Case | Actual local inference outcome |

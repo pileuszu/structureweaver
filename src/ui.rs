@@ -546,6 +546,9 @@ impl Desktop {
                             ui.label(RichText::new("숨김 시트를 포함한 전체 구조를 함께 분석합니다.").size(13.0).color(MUTED));
                         });
                     }
+                    if self.view == View::Structure {
+                        self.source_tools(ui);
+                    }
                     ui.add_space(24.0);
                     ui.separator();
                     ui.add_space(18.0);
@@ -571,34 +574,28 @@ impl Desktop {
             });
     }
 
-    fn structure(&mut self, ui: &mut egui::Ui) {
+    fn source_tools(&mut self, ui: &mut egui::Ui) {
         let Some(document) = self.document.as_ref() else {
             return;
         };
         let Some(page) = document.pages.get(self.selected_page) else {
             return;
         };
-        ui.horizontal(|ui| {
+        let Some(grid) = &page.grid else {
+            return;
+        };
+        ui.add_space(16.0);
+        ui.separator();
+        ui.add_space(10.0);
+        eyebrow(ui, "시트 도구", MUTED);
+        if page.hidden {
             ui.label(
-                RichText::new(&page.name)
-                    .size(17.0)
-                    .family(semibold_family()),
+                RichText::new("숨김 시트 · 분석에 포함됨")
+                    .size(11.5)
+                    .color(WARM),
             );
-            if page.hidden {
-                ui.label(
-                    RichText::new("숨김 시트 · 분석에 포함됨")
-                        .size(11.5)
-                        .color(WARM),
-                );
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    RichText::new("원본 서식 · 읽기 전용")
-                        .size(11.5)
-                        .color(MUTED),
-                );
-            });
-        });
+        }
+        ui.add_space(6.0);
         let tables: Vec<_> = self
             .result
             .as_ref()
@@ -679,7 +676,49 @@ impl Desktop {
                 },
             );
         }
-        ui.add_space(5.0);
+
+        self.sheet_view.controls(
+            ui,
+            &format!("{}:{}", document.id, page.id),
+            grid,
+            (&mut self.inspect_row, &mut self.inspect_col),
+            &tables,
+        );
+        if let Some(result) = &self.result {
+            let incomplete = result
+                .pages
+                .iter()
+                .filter(|page| !matches!(page.state.as_str(), "complete" | "empty"))
+                .count();
+            if incomplete > 0 {
+                ui.add_space(8.0);
+                if ui
+                    .link(
+                        RichText::new(format!("검토가 필요한 시트 {incomplete}개 →"))
+                            .size(12.0)
+                            .color(WARM),
+                    )
+                    .on_hover_text("분석 범위와 시트별 미해결 영역을 확인합니다.")
+                    .clicked()
+                {
+                    self.view = View::Report;
+                }
+            }
+        }
+    }
+
+    fn structure(&mut self, ui: &mut egui::Ui) {
+        let Some(document) = self.document.as_ref() else {
+            return;
+        };
+        let Some(page) = document.pages.get(self.selected_page) else {
+            return;
+        };
+        let tables: Vec<_> = self
+            .result
+            .as_ref()
+            .map(|r| r.tables.iter().filter(|t| t.page_id == page.id).collect())
+            .unwrap_or_default();
         if let Some(grid) = &page.grid {
             self.sheet_view.show(
                 ui,
@@ -1603,9 +1642,23 @@ impl eframe::App for Desktop {
                         });
                 });
         }
+        let source_canvas = self.view == View::Structure
+            && self
+                .document
+                .as_ref()
+                .and_then(|document| document.pages.get(self.selected_page))
+                .is_some_and(|page| page.grid.is_some());
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(BG).inner_margin(14.0))
+            .frame(
+                egui::Frame::NONE
+                    .fill(if source_canvas { PANEL } else { BG })
+                    .inner_margin(if source_canvas { 0.0 } else { 14.0 }),
+            )
             .show(ctx, |ui| {
+                if source_canvas {
+                    self.structure(ui);
+                    return;
+                }
                 self.overview(ui);
                 if let Some(result) = &self.result {
                     let incomplete = result

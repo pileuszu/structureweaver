@@ -6,7 +6,7 @@ Excel의 모든 워크시트에서 표·행/열 헤더·값의 구조를 분석�
 
 macOS 앱은 `dist/StructureWeaver.app`이며, `./scripts/package-dmg.sh`로 앱과 `Applications` 바로가기가 들어 있는 설치용 DMG를 만듭니다. DMG를 열어 앱을 Applications로 끌어 놓으면 됩니다. Excel 설치는 필요하지 않습니다. 구조 분석에는 Llama에서 이미지 입력이 가능한 모델과 로컬 API 서버를 준비합니다.
 
-현재 Apple Silicon 빌드의 파일명은 `StructureWeaver-0.1.1-macos-arm64.dmg`이며 macOS 12 이상을 대상으로 합니다. 스크립트는 실제 바이너리의 버전·아키텍처·최소 OS를 패키지에 기록하고 SHA256 파일도 생성합니다. 기본 빌드는 개인 테스트용 ad hoc 서명이며 Apple 공증은 포함하지 않습니다. 외부 배포용 Developer ID 서명은 `STRUCTUREWEAVER_SIGNING_IDENTITY`로 지정할 수 있고, 공증은 별도로 진행해야 합니다. [Apple 배포 안내](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
+현재 Apple Silicon 빌드의 파일명은 `StructureWeaver-0.1.2-macos-arm64.dmg`이며 macOS 12 이상을 대상으로 합니다. 스크립트는 실제 바이너리의 버전·아키텍처·최소 OS를 패키지에 기록하고 SHA256 파일도 생성합니다. 기본 빌드는 개인 테스트용 ad hoc 서명이며 Apple 공증은 포함하지 않습니다. 외부 배포용 Developer ID 서명은 `STRUCTUREWEAVER_SIGNING_IDENTITY`로 지정할 수 있고, 공증은 별도로 진행해야 합니다. [Apple 배포 안내](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)
 
 1. **설정**에서 `http://127.0.0.1:9931/v1` 서버 연결을 확인하고 비전 모델을 선택합니다.
 2. `.xlsx` 또는 `.xlsm` 파일을 열거나 창에 끌어 놓습니다. 숨김·빈 시트도 목록에 표시됩니다.
@@ -70,6 +70,8 @@ mkdir -p output
 분석 흐름의 참고 소스는 [bist-mini-final의 Luna detector](https://github.com/bist-mini-final/bist-mini-final/blob/0e0d7638b96c9f9db816c3959cec6064a40b5045/modules/structure/luna_vlm_structure_detector.py)입니다. `Luna`는 모듈 이름이며 별도 모델 가중치를 의미하지 않습니다. Python 런타임 없이 Rust로 재구현하고, 모델 전송을 Llama의 `/v1/chat/completions`로 교체했습니다.
 
 ## 디자인 / 검증 자료
+
+원본 시트 화면은 [GridCraft의 중앙 그리드 구성](https://github.com/storytold/gridcraft/blob/76416d4869a020baf8e9ee91b0fd8b35a777e6cc/crates/ui-egui/src/app.rs#L242)을 참고해 패널 사이의 전체 영역을 여백 없이 사용합니다. 시트 위 제목·요약·수식줄을 없애고, 셀 값·수식 확인, 이동, 배율, 보기와 분석 구조를 왼쪽 **시트 도구**로 옮겼습니다. 빈 셀 격자도 화면 끝까지 이어지며, 서버·모델은 **설정**에서 관리합니다. 스위치·체크박스형 토글은 사용하지 않습니다.
 
 화면에는 Pretendard Regular·SemiBold를 내장해 한글·영문을 함께 표시합니다. 별도 폰트 설치가 필요 없으며, 글꼴 라이선스는 `assets/fonts/OFL.txt`와 앱 번들에 포함됩니다.
 
